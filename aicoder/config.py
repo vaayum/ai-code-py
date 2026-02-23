@@ -32,6 +32,8 @@ from typing import Literal, Optional
 import yaml
 from pydantic import BaseModel, Field
 
+from aicoder.enterprise_auth import AuthPluginConfig, EnterpriseAuthPlugin
+
 
 # ── Config schema ────────────────────────────────────────────────────────────
 
@@ -45,16 +47,20 @@ class EnterpriseConfig(BaseModel):
     """On-premise LLM configuration (OpenAI-compatible API)."""
     base_url: str = ""                          # e.g. https://llm.corp.internal/v1
     model: str = ""                             # e.g. codellama-70b, mistral-7b
-    api_key: str = ""                           # internal API token
+    api_key: str = ""                           # internal API token (if static)
     tls_verify: bool = True                     # set False for dev/self-signed
     ca_bundle: Optional[str] = None             # path to custom PEM bundle
     proxy_url: Optional[str] = None             # e.g. http://proxy:3128
+    auth_plugin: Optional[AuthPluginConfig] = None  # dynamic .whl auth plugin
 
     def has_proxy(self) -> bool:
         return bool(self.proxy_url)
 
     def has_custom_tls(self) -> bool:
         return bool(self.ca_bundle) or not self.tls_verify
+
+    def has_auth_plugin(self) -> bool:
+        return self.auth_plugin is not None and self.auth_plugin.is_configured()
 
 
 class AiCoderConfig(BaseModel):
@@ -154,13 +160,25 @@ def _create_enterprise_llm(config: AiCoderConfig, temp: float, max_tok: int):
         ent = EnterpriseConfig()
 
     base_url = ent.base_url or _require_env("ENTERPRISE_LLM_URL")
-    api_key  = ent.api_key  or os.environ.get("ENTERPRISE_LLM_KEY", "none")
     model    = ent.model    or config.model or _require_env("ENTERPRISE_LLM_MODEL")
 
-    # ── Build httpx client for TLS / proxy control ─────────────────────────
-    http_client = _build_http_client(ent)
+    # ── Auth plugin (e.g. rbc_security + rbc_auth) ─────────────────────────
+    if ent.has_auth_plugin():
+        plugin = EnterpriseAuthPlugin(ent.auth_plugin)
+        plugin.setup()               # run enable_certs(force=True) etc.
+        api_key = plugin.get_token() # acquire initial bearer token
+        http_client = plugin.build_httpx_client(
+            verify=ent.ca_bundle if ent.ca_bundle else ent.tls_verify,
+            proxy_url=ent.proxy_url,
+        )
+    else:
+        # Static API key mode (fall back to env var)
+        api_key     = ent.api_key or os.environ.get("ENTERPRISE_LLM_KEY", "none")
+        http_client = _build_http_client(ent)
 
-    kwargs = dict(
+    print(f"🏢 Enterprise LLM: {base_url} | model={model}")
+
+    kwargs: dict = dict(
         api_key=api_key,
         base_url=base_url,
         model=model,
@@ -170,8 +188,8 @@ def _create_enterprise_llm(config: AiCoderConfig, temp: float, max_tok: int):
     if http_client is not None:
         kwargs["http_client"] = http_client
 
-    print(f"🏢 Enterprise LLM: {base_url} | model={model}")
     return ChatOpenAI(**kwargs)
+
 
 
 def _build_http_client(ent: EnterpriseConfig):
