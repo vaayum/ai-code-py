@@ -313,6 +313,13 @@ def _print_banner(mode: str, model: str, directory: Path) -> None:
     console.print()
 
 
+@app.command(name="models")
+def list_models():
+    """Show recommended models for BYOK (cloud) and local (Ollama) deployment."""
+    from aicoder.config_printer import print_catalog
+    print_catalog()
+
+
 @app.command(name="enterprise-init")
 def enterprise_init(
     directory: Path = typer.Option(Path("."), "--dir", "-d",

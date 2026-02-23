@@ -115,6 +115,35 @@ def load_config(path: Path | None = None) -> AiCoderConfig:
     return AiCoderConfig()
 
 
+# ── Model catalog ────────────────────────────────────────────────────────────
+# Curated recommendations for an agentic coding tool.
+# Priority: reliable tool-use > large context > code quality > cost
+
+MODEL_CATALOG = {
+    "byok": [
+        # id, provider, env_var, display_name, note
+        ("claude-3-5-sonnet-20241022", "anthropic",  "ANTHROPIC_API_KEY",  "Claude 3.5 Sonnet",     "⭐ Best agentic tool-use, 200K ctx — recommended default"),
+        ("claude-3-7-sonnet",         "anthropic",  "ANTHROPIC_API_KEY",  "Claude 3.7 Sonnet",     "Extended thinking, best for complex audit/reasoning"),
+        ("deepseek-chat",             "deepseek",   "DEEPSEEK_API_KEY",   "DeepSeek V3",           "💰 10× cheaper than OpenAI, excellent code quality"),
+        ("deepseek-reasoner",         "deepseek",   "DEEPSEEK_API_KEY",   "DeepSeek R1 (Reasoner)","Chain-of-thought — for hard bugs and complex refactors"),
+        ("gpt-4o",                    "openai",     "OPENAI_API_KEY",     "GPT-4o",                "Fast, bulletproof tool calling, 128K ctx"),
+        ("gpt-4o-mini",               "openai",     "OPENAI_API_KEY",     "GPT-4o mini",           "Budget OpenAI option — fast and cheap"),
+        ("o3-mini",                   "openai",     "OPENAI_API_KEY",     "o3-mini (reasoning)",   "Best for audit/debugging chains"),
+        ("gemini-2.0-flash",          "gemini",     "GOOGLE_API_KEY",     "Gemini 2.0 Flash",      "1M token context — great for whole-codebase analysis"),
+        ("gemini-2.0-pro",            "gemini",     "GOOGLE_API_KEY",     "Gemini 2.0 Pro",        "Best Gemini for code, strong reasoning"),
+    ],
+    "local": [
+        # id (ollama pull name), min_vram_gb, display_name, note
+        ("qwen2.5-coder:32b",   24, "Qwen2.5-Coder 32B",     "⭐ Best local coding model — beats many cloud models"),
+        ("qwen2.5-coder:7b",     6, "Qwen2.5-Coder 7B",      "Consumer GPU (RTX 3080) — great tool-use"),
+        ("llama3.1:70b",        48, "Llama 3.1 70B",          "Best general-purpose local, 128K ctx, excellent tool-use"),
+        ("llama3.2:3b",          4, "Llama 3.2 3B",           "Ultra-low resource — for CI/hobbyist use"),
+        ("deepseek-coder-v2:16b",12, "DeepSeek-Coder-V2 16B", "Strong coder, runs on 12GB VRAM"),
+        ("mistral:7b",           6, "Mistral 7B",             "General fallback, wide hardware support"),
+    ],
+}
+
+
 # ── LLM factory ──────────────────────────────────────────────────────────────
 
 def create_llm(provider: str, config: AiCoderConfig):
@@ -139,7 +168,7 @@ def create_llm(provider: str, config: AiCoderConfig):
         case "anthropic":
             from langchain_anthropic import ChatAnthropic
             key = _require_env("ANTHROPIC_API_KEY")
-            model = config.model or "claude-opus-4-5"
+            model = config.model or "claude-3-5-sonnet-20241022"
             return ChatAnthropic(api_key=key, model_name=model, temperature=temp, max_tokens=max_tok)
 
         case "deepseek":
@@ -154,15 +183,29 @@ def create_llm(provider: str, config: AiCoderConfig):
                 max_tokens=max_tok,
             )
 
+        case "gemini":
+            from langchain_google_genai import ChatGoogleGenerativeAI
+            key = _require_env("GOOGLE_API_KEY")
+            model = config.model or "gemini-2.0-flash"
+            return ChatGoogleGenerativeAI(
+                google_api_key=key,
+                model=model,
+                temperature=temp,
+                max_output_tokens=max_tok,
+            )
+
         case "ollama":
             from langchain_ollama import ChatOllama
-            model = config.model or "llama3.1"
+            model = config.model or "qwen2.5-coder:7b"
             return ChatOllama(model=model, temperature=temp)
 
         case _:
             raise ValueError(
-                f"Unknown provider: {provider}. Use: openai, anthropic, deepseek, ollama, enterprise"
+                f"Unknown provider: {provider!r}.\n"
+                f"Supported: openai, anthropic, deepseek, gemini, ollama, enterprise\n"
+                f"Run 'aicoder models' to see recommended options."
             )
+
 
 
 def _create_enterprise_llm(config: AiCoderConfig, temp: float, max_tok: int):
