@@ -210,29 +210,36 @@ def _run_batch(
     interactive: bool = False,
     spec: Path | None = None,
 ) -> None:
-    from aicoder.agents.single_agent import run_single_agent
+    from aicoder.agents.single_agent import stream_agent_events
+    from aicoder.tui.renderer import LiveRenderer
 
     _print_banner(mode, model, directory)
     if interactive:
         console.print("[bold yellow]🔍 Interactive mode — you will approve each file change[/bold yellow]")
+    if dry_run:
+        console.print("[bold dim]👁  Dry-run — no files will be written[/bold dim]")
 
     llm, all_tools, _, _, memory = _setup(model, directory, config, dry_run, mcp_config, interactive)
-    memory_ctx = memory.to_prompt_context()
     spec_ctx   = _load_spec(spec)
+    memory_ctx = memory.to_prompt_context()
 
     full_instruction = instruction + spec_ctx
     if memory_ctx:
-        full_instruction = full_instruction + "\n\n" + memory_ctx
+        full_instruction += "\n\n" + memory_ctx
 
-    with console.status("[cyan]Agent is working...[/cyan]", spinner="dots"):
-        result = run_single_agent(full_instruction, llm, all_tools)
+    renderer = LiveRenderer()
+    try:
+        events = stream_agent_events(full_instruction, llm, all_tools)
+        result = renderer.render(events)
+    except KeyboardInterrupt:
+        console.print("\n[yellow]⚡ Cancelled.[/yellow]")
+        return
 
-    console.print()
-    console.rule("[dim]Result[/dim]", style="dim")
-    from rich.markdown import Markdown
-    console.print(Markdown(result))
-    memory.add_action(f"{mode.upper()}: {instruction[:80]}")
-    memory.save()
+    renderer.print_session_stats()
+
+    if result:
+        memory.add_action(f"{mode.upper()}: {instruction[:80]}")
+        memory.save()
 
 
 def _run_multi_agent(

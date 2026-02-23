@@ -1,11 +1,11 @@
 {
-  "pyproject.toml": "86922dfeeb169df99d7573bb1b1c4a5a53de27d53eac6d3fdf24d55c85553468",
+  "pyproject.toml": "33e1e7a1f5af837f04809d9116e0c96d402492638c3ad511a238203c08e35e5f",
   "README.md": "a68dc5a237fcab41c5a3beeb79348b226cad6a8b47879ede256162f7813226c4",
   "aicoder/ingestor.py": "c38ad34f0aae9125e41733d1d8f76a68ce7095ce2074cbbb3dfae486e9b708cd",
   "aicoder/config.py": "6675807460ddcd266445af374b00ea80fed79040d4037dd36f1e6b0f44954162",
   "aicoder/memory.py": "58a35912539951e01d8c973ae352c380fdc262424d943fc2cad987197fc9343f",
   "aicoder/__init__.py": "6227e1c83718db8de23cbafe1c52ee02bed5b8dc1ae817c31d1c3761a3c03d0e",
-  "aicoder/cli.py": "779a9b5fce0b2d0a820a772245f9bcc78e9e938c5952b38727979fe05ba67b6e",
+  "aicoder/cli.py": "05c797a250dd9ee9ed1ee5954fe77e6b801f743d4de6cefd22e54fedc8f23d1a",
   ".pytest_cache/README.md": "73fd6fccdd802c419a6b2d983d6c3173b7da97558ac4b589edec2dfe443db9ad",
   "tests/test_extended.py": "696a39f941505e0cd88ad031a5be3677c8fd0a932d2b9cde046846f77a2172f6",
   "tests/conftest.py": "4c141d911ee61b35976d8dc41f5e3f1fb5c867f5b7e554db8152078f1db0fb5e",
@@ -15,13 +15,13 @@
   "aicoder/tools/__init__.py": "a4aaaf6295286a60e1157debb36b632604891b3404cc6f0afb8628470856b998",
   "aicoder/tools/build_tools.py": "98165c7863159d0605870b2550249341b1b2424ad0bd732aa3e11d6de200e5ab",
   "aicoder/tools/file_tools.py": "2be95f575d89ae500435d1d713790a4f277714936446da21da65bc0f35a4b1a4",
-  "aicoder/tui/shell.py": "af2f6b17ecbd01c58a69f94b768a6814dac996c27c5155f9e808a670d266874f",
+  "aicoder/tui/shell.py": "c6a1e41bfd13afdf2494b0c5a565a965925cd1344e89de54213b8002f71e1889",
   "aicoder/tui/__init__.py": "72ce8198d296e76d62ebd64b40bed0bf79f0e6f7da2057ce6b33ec8e0f48c4db",
   "aicoder/agents/multi_agent.py": "4bc993ec3a218245b21335b3a914e68a145ffdef3e5051359a92113202112f2e",
   "aicoder/agents/__init__.py": "1e6f226771cf343d15ee66e1b0194b58b0bc87d259a61d328e4b141c3b18d17b",
-  "aicoder/agents/single_agent.py": "b4cfebf85a6227ea99aa7bf8e1a247e2662df0f341c6ce54cb3d6960d7dd1b84",
+  "aicoder/agents/single_agent.py": "171fb6428aa76b046dabb929c67a273fe3901d1c60386d23bba4d96c0e6215fc",
   ".aicoder/memory.json": "be9129e2b559856e9345bdd497a139f5b4d65849b721feff64cf3620875ae785",
-  ".aicoder/fingerprints.json": "b9c97520ef9c54a01ce67512fdc2ec9a40f9faeccddc57abd51ccad1b3a63914",
+  ".aicoder/fingerprints.json": "b06217dd460c4b61abf3d42debfb1a81415e6df5e93b4c73adbbd129b22332be",
   "aicoder/mcp_loader.py": "a8f04484d1691f70b43efe9df95fa6df638a61a154979b3e25ffade0eb59136a",
   "tests/test_mcp.py": "5b4af5d044c3f635751144e5442dcf744767cd88829eb8a39ec7e4e5ed743524",
   "docs/rate-limit-spec.md": "b095371c709ad4a607643f7a917c75c0932856ef99b865b3c05414be48cf701c",
@@ -31,5 +31,6 @@
   "tests/test_enterprise_auth.py": "03a9ed6a375d9b1ab240cd880aec3c3c69834eb176fda140276d3324ffdf058e",
   "tests/test_enterprise_config.py": "404830e5c1f8fec3995d5cc084cd074fbed73dea2e43f3af5652264e7b710a6a",
   "tests/test_ast_tools.py": "07dadd5484d75c26f7e557a0de85a0918714bdba3ca80e1b9e9808bf033201bd",
-  "aicoder/tools/ast_tools.py": "4bf37daa94570c77679f20bb8a4db6675c06433439a90f9a67c4652230d7465e"
+  "aicoder/tools/ast_tools.py": "4bf37daa94570c77679f20bb8a4db6675c06433439a90f9a67c4652230d7465e",
+  "aicoder/tui/renderer.py": "b10340ef9bb6b9c1ecdfbbfce6a34d5e1745783106c5d2158f4fd6f894f752dd"
 }

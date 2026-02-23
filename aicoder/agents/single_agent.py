@@ -1,9 +1,10 @@
-"""Single ReAct agent — uses langgraph.prebuilt.create_react_agent (LangChain 0.3+)."""
+"""Single ReAct agent — LangGraph 0.3+ streaming with tool-call events."""
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Iterator
 
-from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 from langgraph.prebuilt import create_react_agent
 
 
@@ -45,6 +46,30 @@ analyzing, and modifying codebases based on their natural language requests.
 """
 
 
+@dataclass
+class ToolCallEvent:
+    """Emitted when the agent calls a tool."""
+    tool_name: str
+    tool_input: dict
+    tool_result: str = ""
+
+
+@dataclass
+class TokenEvent:
+    """Emitted as the agent streams its final text response."""
+    text: str
+    is_final: bool = False
+
+
+@dataclass
+class ThinkingEvent:
+    """Emitted when agent is reasoning (no visible text yet)."""
+    pass
+
+
+AgentEvent = ToolCallEvent | TokenEvent | ThinkingEvent
+
+
 def build_agent(llm, tools: list):
     """Build a LangGraph ReAct agent — LangChain 0.3+ compatible."""
     return create_react_agent(
@@ -67,12 +92,76 @@ def run_single_agent(
         prompt = f"{instruction}\n\n{memory_context}"
 
     result = agent.invoke({"messages": [HumanMessage(content=prompt)]})
-    # LangGraph returns {"messages": [...]} — last message is the AI response
     messages = result.get("messages", [])
     for msg in reversed(messages):
         if hasattr(msg, "content") and isinstance(msg.content, str) and msg.content.strip():
             return msg.content
     return ""
+
+
+def stream_agent_events(
+    instruction: str,
+    llm,
+    tools: list,
+    memory_context: str = "",
+) -> Iterator[AgentEvent]:
+    """
+    Stream rich agent events in real time using LangGraph stream_mode='updates'.
+
+    Yields:
+        ThinkingEvent  — agent is processing (no output yet)
+        ToolCallEvent  — a tool was invoked (name + input + result)
+        TokenEvent     — final text chunks as they stream
+    """
+    agent = build_agent(llm, tools)
+    prompt = instruction
+    if memory_context:
+        prompt = f"{instruction}\n\n{memory_context}"
+
+    # Track pending tool calls (name+input arrive before result)
+    pending_tool_calls: dict[str, dict] = {}  # call_id -> {name, input}
+
+    yield ThinkingEvent()
+
+    for update in agent.stream(
+        {"messages": [HumanMessage(content=prompt)]},
+        stream_mode="updates",
+    ):
+        for node_name, node_output in update.items():
+            messages = node_output.get("messages", [])
+
+            for msg in messages:
+                # ── AI message: reasoning or tool call request ────────────
+                if isinstance(msg, AIMessage):
+                    # Surface any tool_calls embedded in this message
+                    for tc in getattr(msg, "tool_calls", []) or []:
+                        call_id = tc.get("id", "")
+                        pending_tool_calls[call_id] = {
+                            "name": tc.get("name", "?"),
+                            "input": tc.get("args", {}),
+                        }
+                        yield ToolCallEvent(
+                            tool_name=tc.get("name", "?"),
+                            tool_input=tc.get("args", {}),
+                        )
+
+                    # If it has plain text and no tool_calls → it's the final answer
+                    if (
+                        isinstance(msg.content, str)
+                        and msg.content.strip()
+                        and not getattr(msg, "tool_calls", None)
+                    ):
+                        yield TokenEvent(text=msg.content, is_final=True)
+
+                # ── ToolMessage: result of a tool call ────────────────────
+                elif isinstance(msg, ToolMessage):
+                    call_id = msg.tool_call_id
+                    pending = pending_tool_calls.pop(call_id, {})
+                    yield ToolCallEvent(
+                        tool_name=pending.get("name", msg.name or "?"),
+                        tool_input=pending.get("input", {}),
+                        tool_result=str(msg.content)[:500],  # truncate long results
+                    )
 
 
 def stream_single_agent(
@@ -81,18 +170,7 @@ def stream_single_agent(
     tools: list,
     memory_context: str = "",
 ) -> Iterator[str]:
-    """Stream agent tokens. Yields final text chunks as they arrive."""
-    agent = build_agent(llm, tools)
-    prompt = instruction
-    if memory_context:
-        prompt = f"{instruction}\n\n{memory_context}"
-
-    for event in agent.stream(
-        {"messages": [HumanMessage(content=prompt)]},
-        stream_mode="values",
-    ):
-        messages = event.get("messages", [])
-        if messages:
-            last = messages[-1]
-            if hasattr(last, "content") and isinstance(last.content, str):
-                yield last.content
+    """Backward-compat: stream only the final text tokens."""
+    for event in stream_agent_events(instruction, llm, tools, memory_context):
+        if isinstance(event, TokenEvent) and event.is_final:
+            yield event.text
