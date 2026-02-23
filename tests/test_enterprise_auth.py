@@ -49,15 +49,15 @@ class TestAuthPluginConfig:
         assert cfg.is_configured() is False  # empty token_module/func → not configured
 
     def test_is_configured_true(self):
-        cfg = AuthPluginConfig(token_module="rbc_auth", token_func="get_auth_token")
+        cfg = AuthPluginConfig(token_module="corp_auth", token_func="get_auth_token")
         assert cfg.is_configured() is True
 
-    def test_full_rbc_config(self):
+    def test_full_whl_config(self):
         cfg = AuthPluginConfig(
-            setup_module="rbc_security",
+            setup_module="corp_security",
             setup_func="enable_certs",
             setup_kwargs={"force": True},
-            token_module="rbc_auth",
+            token_module="corp_auth",
             token_func="get_auth_token",
             token_kwargs={},
             refresh_on_401=True,
@@ -73,8 +73,8 @@ class TestAuthPluginConfig:
 class TestSetup:
 
     def teardown_method(self):
-        _remove_mock_module("mock_rbc_security")
-        _remove_mock_module("mock_rbc_auth")
+        _remove_mock_module("mock_corp_security")
+        _remove_mock_module("mock_corp_auth")
 
     def test_setup_calls_enable_certs(self):
         called_with = {}
@@ -82,17 +82,17 @@ class TestSetup:
         def mock_enable_certs(**kwargs):
             called_with.update(kwargs)
 
-        _make_mock_module("mock_rbc_security", enable_certs=mock_enable_certs)
+        _make_mock_module("mock_corp_security", enable_certs=mock_enable_certs)
 
         cfg = AuthPluginConfig(
-            setup_module="mock_rbc_security",
+            setup_module="mock_corp_security",
             setup_func="enable_certs",
             setup_kwargs={"force": True},
-            token_module="mock_rbc_auth",
+            token_module="mock_corp_auth",
             token_func="get_token",
         )
         plugin = EnterpriseAuthPlugin(cfg)
-        _make_mock_module("mock_rbc_auth", get_token=lambda: "tok")
+        _make_mock_module("mock_corp_auth", get_token=lambda: "tok")
 
         plugin.setup()
         assert called_with == {"force": True}
@@ -103,14 +103,14 @@ class TestSetup:
         def mock_enable_certs(**kwargs):
             call_count[0] += 1
 
-        _make_mock_module("mock_rbc_security", enable_certs=mock_enable_certs)
-        _make_mock_module("mock_rbc_auth", get_token=lambda: "tok")
+        _make_mock_module("mock_corp_security", enable_certs=mock_enable_certs)
+        _make_mock_module("mock_corp_auth", get_token=lambda: "tok")
 
         cfg = AuthPluginConfig(
-            setup_module="mock_rbc_security",
+            setup_module="mock_corp_security",
             setup_func="enable_certs",
             setup_kwargs={},
-            token_module="mock_rbc_auth",
+            token_module="mock_corp_auth",
             token_func="get_token",
         )
         plugin = EnterpriseAuthPlugin(cfg)
@@ -120,10 +120,10 @@ class TestSetup:
 
     def test_setup_module_not_found_raises(self):
         cfg = AuthPluginConfig(
-            setup_module="nonexistent_rbc_wheel",
+            setup_module="nonexistent_corp_wheel",
             setup_func="enable_certs",
             setup_kwargs={},
-            token_module="mock_rbc_auth",
+            token_module="mock_corp_auth",
             token_func="get_token",
         )
         plugin = EnterpriseAuthPlugin(cfg)
@@ -132,8 +132,8 @@ class TestSetup:
 
     def test_setup_skipped_when_no_setup_module(self):
         """If no setup_module configured, setup() is a no-op."""
-        _make_mock_module("mock_rbc_auth", get_token=lambda: "tok")
-        cfg = AuthPluginConfig(token_module="mock_rbc_auth", token_func="get_token")
+        _make_mock_module("mock_corp_auth", get_token=lambda: "tok")
+        cfg = AuthPluginConfig(token_module="mock_corp_auth", token_func="get_token")
         plugin = EnterpriseAuthPlugin(cfg)
         plugin.setup()  # should not raise
         assert plugin._setup_done is True
@@ -144,14 +144,14 @@ class TestSetup:
 class TestGetToken:
 
     def teardown_method(self):
-        _remove_mock_module("mock_rbc_auth")
+        _remove_mock_module("mock_corp_auth")
 
     def test_returns_token(self):
-        _make_mock_module("mock_rbc_auth", get_auth_token=lambda: "rbc-bearer-xyz")
+        _make_mock_module("mock_corp_auth", get_auth_token=lambda: "corp-bearer-xyz")
 
-        cfg = AuthPluginConfig(token_module="mock_rbc_auth", token_func="get_auth_token")
+        cfg = AuthPluginConfig(token_module="mock_corp_auth", token_func="get_auth_token")
         plugin = EnterpriseAuthPlugin(cfg)
-        assert plugin.get_token() == "rbc-bearer-xyz"
+        assert plugin.get_token() == "corp-bearer-xyz"
 
     def test_token_kwargs_passed(self):
         received = {}
@@ -160,10 +160,10 @@ class TestGetToken:
             received.update(kwargs)
             return "tok"
 
-        _make_mock_module("mock_rbc_auth", get_auth_token=mock_get_token)
+        _make_mock_module("mock_corp_auth", get_auth_token=mock_get_token)
 
         cfg = AuthPluginConfig(
-            token_module="mock_rbc_auth",
+            token_module="mock_corp_auth",
             token_func="get_auth_token",
             token_kwargs={"scope": "llm.access"},
         )
@@ -178,10 +178,10 @@ class TestGetToken:
             call_count[0] += 1
             return "cached-token"
 
-        _make_mock_module("mock_rbc_auth", get_auth_token=mock_get_token)
+        _make_mock_module("mock_corp_auth", get_auth_token=mock_get_token)
 
         cfg = AuthPluginConfig(
-            token_module="mock_rbc_auth",
+            token_module="mock_corp_auth",
             token_func="get_auth_token",
             token_ttl_seconds=60,
         )
@@ -197,10 +197,10 @@ class TestGetToken:
         def mock_get_token():
             return next(tokens)
 
-        _make_mock_module("mock_rbc_auth", get_auth_token=mock_get_token)
+        _make_mock_module("mock_corp_auth", get_auth_token=mock_get_token)
 
         cfg = AuthPluginConfig(
-            token_module="mock_rbc_auth",
+            token_module="mock_corp_auth",
             token_func="get_auth_token",
             token_ttl_seconds=1,
         )
@@ -219,10 +219,10 @@ class TestGetToken:
             call_count[0] += 1
             return f"token-{call_count[0]}"
 
-        _make_mock_module("mock_rbc_auth", get_auth_token=mock_get_token)
+        _make_mock_module("mock_corp_auth", get_auth_token=mock_get_token)
 
         cfg = AuthPluginConfig(
-            token_module="mock_rbc_auth",
+            token_module="mock_corp_auth",
             token_func="get_auth_token",
             token_ttl_seconds=300,
         )
@@ -232,16 +232,16 @@ class TestGetToken:
         assert call_count[0] == 2
 
     def test_empty_token_raises(self):
-        _make_mock_module("mock_rbc_auth", get_auth_token=lambda: "")
+        _make_mock_module("mock_corp_auth", get_auth_token=lambda: "")
 
-        cfg = AuthPluginConfig(token_module="mock_rbc_auth", token_func="get_auth_token")
+        cfg = AuthPluginConfig(token_module="mock_corp_auth", token_func="get_auth_token")
         plugin = EnterpriseAuthPlugin(cfg)
         with pytest.raises(RuntimeError, match="empty"):
             plugin.get_token()
 
     def test_token_module_not_found_raises(self):
         cfg = AuthPluginConfig(
-            token_module="nonexistent_rbc_auth",
+            token_module="nonexistent_corp_auth",
             token_func="get_auth_token",
         )
         plugin = EnterpriseAuthPlugin(cfg)
@@ -250,10 +250,10 @@ class TestGetToken:
 
     def test_thread_safety(self):
         """Multiple threads must each receive valid tokens."""
-        _make_mock_module("mock_rbc_auth", get_auth_token=lambda: "thread-safe-token")
+        _make_mock_module("mock_corp_auth", get_auth_token=lambda: "thread-safe-token")
 
         cfg = AuthPluginConfig(
-            token_module="mock_rbc_auth",
+            token_module="mock_corp_auth",
             token_func="get_auth_token",
         )
         plugin = EnterpriseAuthPlugin(cfg)
@@ -281,7 +281,7 @@ class TestGetToken:
 class TestBuildPlugin:
 
     def teardown_method(self):
-        _remove_mock_module("mock_rbc_auth")
+        _remove_mock_module("mock_corp_auth")
 
     def test_build_plugin_runs_setup(self):
         setup_called = [False]
@@ -289,19 +289,19 @@ class TestBuildPlugin:
         def mock_enable_certs(force=False):
             setup_called[0] = True
 
-        _make_mock_module("mock_rbc_security_bp", enable_certs=mock_enable_certs)
-        sys.modules["mock_rbc_security_bp"] = sys.modules.get("mock_rbc_security_bp") or types.ModuleType("mock_rbc_security_bp")
-        sys.modules["mock_rbc_security_bp"].enable_certs = mock_enable_certs
-        _make_mock_module("mock_rbc_auth", get_auth_token=lambda: "tok")
+        _make_mock_module("mock_corp_security_bp", enable_certs=mock_enable_certs)
+        sys.modules["mock_corp_security_bp"] = sys.modules.get("mock_corp_security_bp") or types.ModuleType("mock_corp_security_bp")
+        sys.modules["mock_corp_security_bp"].enable_certs = mock_enable_certs
+        _make_mock_module("mock_corp_auth", get_auth_token=lambda: "tok")
 
         cfg = AuthPluginConfig(
-            setup_module="mock_rbc_security_bp",
+            setup_module="mock_corp_security_bp",
             setup_func="enable_certs",
             setup_kwargs={"force": True},
-            token_module="mock_rbc_auth",
+            token_module="mock_corp_auth",
             token_func="get_auth_token",
         )
         plugin = build_plugin(cfg)
         assert setup_called[0] is True
         assert isinstance(plugin, EnterpriseAuthPlugin)
-        _remove_mock_module("mock_rbc_security_bp")
+        _remove_mock_module("mock_corp_security_bp")

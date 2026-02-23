@@ -9,7 +9,7 @@ Supported auth strategies (``auth_strategy`` field in ``.aicoder.yml``)::
   env_var         – token already set in an environment variable (simplest)
   static_key      – literal API key in config / env var (same as env_var, explicit)
   token_endpoint  – call an HTTP endpoint (OAuth2 / custom auth API) to get a token
-  whl_module      – import a corporate .whl (e.g. rbc_security) and call its auth function
+  whl_module      – import a corporate .whl (e.g. corp_security) and call its auth function
 
 Full YAML examples — see ``example_configs()`` below or run ``aicoder enterprise-init``.
 """
@@ -67,7 +67,7 @@ class WhlModuleAuth(BaseModel):
     """
     Import a corporate Python module (from pip-installed .whl) and call its auth function.
 
-    Example: RBC pattern — rbc_security.enable_certs() + rbc_auth.get_auth_token()
+    Example: corporate pattern — corp_security.enable_certs() + corp_auth.get_auth_token()
     """
     strategy: Literal["whl_module"] = "whl_module"
     # Setup phase (optional) — e.g. enable_certs
@@ -364,17 +364,17 @@ enterprise:
     refresh_on_401: true
 """,
         "whl_module": """\
-# Corporate Python .whl (RBC/Scotiabank style)
+# Corporate Python .whl (corporate .whl style)
 mode: enterprise
 enterprise:
-  base_url: https://llm.rbc.internal/v1
-  model: rbc-codellama-70b
+  base_url: https://llm.corp.internal/v1
+  model: corp-codellama-70b
   auth_strategy:
     strategy: whl_module
-    setup_module: rbc_security    # pip install rbc_security.whl
+    setup_module: corp_security    # pip install corp_security.whl
     setup_func: enable_certs
     setup_kwargs: {force: true}
-    token_module: rbc_auth
+    token_module: corp_auth
     token_func: get_auth_token
     token_kwargs: {}
     token_ttl_seconds: 3600

@@ -146,7 +146,7 @@ Model name [corp-llm-model]:
   1 — Token already in an environment variable
   2 — Static API key in config or env var
   3 — Call an HTTP endpoint (OAuth2 / custom auth API)
-  4 — Corporate Python .whl (rbc_security + rbc_auth pattern)
+  4 — Corporate Python .whl (corp_security + corp_auth pattern)
 Choose (1-4):
 
 ══ Step 3 / 5 — TLS / Certificates ═══════════
@@ -190,20 +190,20 @@ enterprise:
     token_ttl_seconds: 3600     # cache token, auto-refresh on 401
 ```
 
-**Corporate .whl module** (e.g. RBC / Scotiabank pattern):
+**Corporate .whl module** (e.g. corporate .whl pattern):
 ```yaml
 mode: enterprise
 enterprise:
-  base_url: https://llm.rbc.internal/v1
-  model: rbc-internal-model
+  base_url: https://llm.corp.internal/v1
+  model: corp-internal-model
   ca_bundle: /etc/ssl/corp-ca.pem       # optional: custom CA
   proxy_url: http://proxy.corp:3128     # optional: HTTP proxy
   auth_strategy:
     strategy: whl_module
-    setup_module: rbc_security          # pip install rbc_security.whl
+    setup_module: corp_security          # pip install corp_security.whl
     setup_func: enable_certs
     setup_kwargs: {force: true}
-    token_module: rbc_auth
+    token_module: corp_auth
     token_func: get_auth_token
     token_ttl_seconds: 3600
     refresh_on_401: true                # auto-refresh on expired token

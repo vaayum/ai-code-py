@@ -82,7 +82,7 @@ _STRATEGY_DESC = {
     "env_var":        "Token already in an environment variable (e.g. export CORP_TOKEN=...)",
     "static_key":     "Static API key in config or env var",
     "token_endpoint": "Call an HTTP endpoint (OAuth2 / custom auth API) to get a token",
-    "whl_module":     "Corporate Python .whl (e.g. rbc_security + rbc_auth pattern)",
+    "whl_module":     "Corporate Python .whl (e.g. corp_security + corp_auth pattern)",
 }
 
 
@@ -228,7 +228,7 @@ def _collect_auth(strategy: str) -> dict:
                               default=True)
         setup_block: dict = {}
         if has_setup:
-            setup_mod  = _prompt("Setup module name", default="rbc_security")
+            setup_mod  = _prompt("Setup module name", default="corp_security")
             setup_func = _prompt("Setup function name", default="enable_certs")
             force      = _confirm("  Pass force=True?", default=True)
             setup_block = {
@@ -236,7 +236,7 @@ def _collect_auth(strategy: str) -> dict:
                 "setup_func":   setup_func,
                 "setup_kwargs": {"force": force},
             }
-        token_mod  = _prompt("Token module name", default="rbc_auth")
+        token_mod  = _prompt("Token module name", default="corp_auth")
         token_func = _prompt("Token function name", default="get_auth_token")
         ttl        = _prompt("Token TTL in seconds (0 = no cache)", default="3600")
         return {
