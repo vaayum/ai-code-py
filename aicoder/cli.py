@@ -49,6 +49,7 @@ def _setup(
     config_path: Path | None,
     dry_run: bool,
     mcp_config: Path | None = None,
+    interactive: bool = False,
 ):
     """Load config, build tools, create LLM. Returns (llm, all_tools, ro_tools, build_tools, memory)."""
     root = directory.resolve()
@@ -62,7 +63,7 @@ def _setup(
         ingestor = CodebaseIngestor(root)
         ingestor.ingest(quiet=True)
 
-    ft   = FileTools(root, dry_run)
+    ft   = FileTools(root, dry_run=dry_run, interactive=interactive)
     bt   = BuildTools(root)
     gt   = GitTools(root)
     st   = SearchTools(ingestor)
@@ -120,10 +121,12 @@ def fix(
     directory: Path = typer.Option(Path("."), "--dir", "-d"),
     config: Optional[Path] = typer.Option(None, "--config"),
     mcp: Optional[Path] = typer.Option(None, "--mcp", help="Path to mcp.json (default: .aicoder/mcp.json)"),
+    spec: Optional[Path] = typer.Option(None, "--spec", "-s", help="Design doc / spec MD file"),
+    interactive: bool = typer.Option(False, "--interactive", "-i", help="Review each change before applying"),
     dry_run: bool = typer.Option(False, "--dry-run"),
 ):
     """Fix a bug or implement a feature."""
-    _run_batch("fix", instruction, model.value, directory, config, dry_run, mcp)
+    _run_batch("fix", instruction, model.value, directory, config, dry_run, mcp, interactive, spec)
 
 
 @app.command()
@@ -133,10 +136,12 @@ def refactor(
     directory: Path = typer.Option(Path("."), "--dir", "-d"),
     config: Optional[Path] = typer.Option(None, "--config"),
     mcp: Optional[Path] = typer.Option(None, "--mcp"),
+    spec: Optional[Path] = typer.Option(None, "--spec", "-s"),
+    interactive: bool = typer.Option(False, "--interactive", "-i"),
     dry_run: bool = typer.Option(False, "--dry-run"),
 ):
     """Refactor code without changing behavior."""
-    _run_batch("refactor", instruction, model.value, directory, config, dry_run, mcp)
+    _run_batch("refactor", instruction, model.value, directory, config, dry_run, mcp, interactive, spec)
 
 
 @app.command()
@@ -147,12 +152,14 @@ def audit(
     since: Optional[str] = typer.Option(None, "--since", help="Git ref to diff from (e.g. main)"),
     config: Optional[Path] = typer.Option(None, "--config"),
     mcp: Optional[Path] = typer.Option(None, "--mcp"),
+    spec: Optional[Path] = typer.Option(None, "--spec", "-s"),
 ):
     """Review code for issues."""
     full_instruction = instruction
     if since:
         full_instruction = f"{instruction}\n\nFocus on changes since: {since} (use get_diff_since tool)"
-    _run_batch("audit", full_instruction, model.value, directory, config, dry_run=True, mcp_config=mcp)
+    _run_batch("audit", full_instruction, model.value, directory, config, dry_run=True, mcp_config=mcp,
+               interactive=False, spec=spec)
 
 
 @app.command()
@@ -163,13 +170,15 @@ def run(
     agents: bool = typer.Option(False, "--agents", help="Enable multi-agent mode"),
     config: Optional[Path] = typer.Option(None, "--config"),
     mcp: Optional[Path] = typer.Option(None, "--mcp"),
+    spec: Optional[Path] = typer.Option(None, "--spec", "-s"),
+    interactive: bool = typer.Option(False, "--interactive", "-i"),
     dry_run: bool = typer.Option(False, "--dry-run"),
 ):
     """Run a task (single-agent or multi-agent with --agents)."""
     if agents:
-        _run_multi_agent(instruction, model.value, directory, config, dry_run, mcp)
+        _run_multi_agent(instruction, model.value, directory, config, dry_run, mcp, interactive, spec)
     else:
-        _run_batch("run", instruction, model.value, directory, config, dry_run, mcp)
+        _run_batch("run", instruction, model.value, directory, config, dry_run, mcp, interactive, spec)
 
 
 @app.command(name="test-gen")
@@ -179,6 +188,8 @@ def test_gen(
     directory: Path = typer.Option(Path("."), "--dir", "-d"),
     config: Optional[Path] = typer.Option(None, "--config"),
     mcp: Optional[Path] = typer.Option(None, "--mcp"),
+    spec: Optional[Path] = typer.Option(None, "--spec", "-s"),
+    interactive: bool = typer.Option(False, "--interactive", "-i"),
     dry_run: bool = typer.Option(False, "--dry-run"),
 ):
     """Generate a comprehensive test suite for a file or class."""
@@ -190,7 +201,7 @@ def test_gen(
         "4. Compile and run the tests\n"
         "5. Fix any failures (max 3 retries)"
     )
-    _run_batch("test-gen", instruction, model.value, directory, config, dry_run, mcp)
+    _run_batch("test-gen", instruction, model.value, directory, config, dry_run, mcp, interactive, spec)
 
 
 @app.command(name="mcp-init")
@@ -212,17 +223,46 @@ def mcp_init(
 
 # ── Internal helpers ──────────────────────────────────────────────────────────
 
+def _load_spec(spec: Path | None) -> str:
+    """Read a design doc / spec MD file. Returns formatted context block or empty string."""
+    if spec is None:
+        return ""
+    path = Path(spec).resolve()
+    if not path.exists():
+        console.print(f"[yellow]⚠️  Spec file not found: {spec}[/yellow]")
+        return ""
+    content = path.read_text(errors="replace")
+    console.print(f"[green]📄 Loaded spec:[/green] {path.name} ({len(content):,} chars)")
+    return (
+        f"\n\n---\n## 📄 Design Specification: {path.name}\n\n"
+        f"{content}\n\n"
+        "**Important**: Implement exactly according to the above spec. "
+        "Read the spec carefully before starting any work."
+        "\n---\n"
+    )
+
+
 def _run_batch(mode: str, instruction: str, model: str,
                directory: Path, config: Path | None, dry_run: bool,
-               mcp_config: Path | None = None) -> None:
+               mcp_config: Path | None = None,
+               interactive: bool = False,
+               spec: Path | None = None) -> None:
     from aicoder.agents.single_agent import run_single_agent
 
     _print_banner(mode, model, directory)
-    llm, all_tools, _, _, memory = _setup(model, directory, config, dry_run, mcp_config)
+    if interactive:
+        console.print("[bold yellow]🔍 Interactive mode — you will approve each file change[/bold yellow]")
+
+    llm, all_tools, _, _, memory = _setup(model, directory, config, dry_run, mcp_config, interactive)
     memory_ctx = memory.to_prompt_context()
+    spec_ctx   = _load_spec(spec)
+
+    full_instruction = instruction + spec_ctx
+    if memory_ctx:
+        full_instruction = full_instruction + "\n\n" + memory_ctx
 
     with console.status("[cyan]Agent is working...[/cyan]", spinner="dots"):
-        result = run_single_agent(instruction, llm, all_tools, memory_ctx)
+        result = run_single_agent(full_instruction, llm, all_tools)
 
     console.print()
     console.rule("[dim]Result[/dim]", style="dim")
@@ -234,14 +274,23 @@ def _run_batch(mode: str, instruction: str, model: str,
 
 def _run_multi_agent(instruction: str, model: str,
                      directory: Path, config: Path | None, dry_run: bool,
-                     mcp_config: Path | None = None) -> None:
+                     mcp_config: Path | None = None,
+                     interactive: bool = False,
+                     spec: Path | None = None) -> None:
     from aicoder.agents.multi_agent import run_multi_agent
 
     _print_banner("multi-agent", model, directory)
-    llm, all_tools, ro_tools, build_tools_list, memory = _setup(model, directory, config, dry_run, mcp_config)
+    if interactive:
+        console.print("[bold yellow]🔍 Interactive mode — you will approve each file change[/bold yellow]")
+
+    llm, all_tools, ro_tools, build_tools_list, memory = _setup(
+        model, directory, config, dry_run, mcp_config, interactive
+    )
+    spec_ctx = _load_spec(spec)
+    full_instruction = instruction + spec_ctx
 
     console.print("[bold cyan]🚀 Launching: Planner → Coder + Reviewer + Tester → Synthesis[/bold cyan]\n")
-    result = run_multi_agent(instruction, llm, all_tools, ro_tools, build_tools_list)
+    result = run_multi_agent(full_instruction, llm, all_tools, ro_tools, build_tools_list)
 
     console.print()
     console.rule("[dim]Final Summary[/dim]", style="dim")
