@@ -29,6 +29,7 @@ app = typer.Typer(
     help="🤖 Autonomous AI coding agent — just describe what you want done.",
     no_args_is_help=False,
     rich_markup_mode="rich",
+    context_settings={"allow_interspersed_args": True, "max_content_width": 120},
 )
 console = Console()
 
