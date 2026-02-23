@@ -10,7 +10,10 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from aicoder.enterprise_auth import AuthPluginConfig, EnterpriseAuthPlugin, build_plugin
+from aicoder.enterprise_auth import (
+    AuthPluginConfig, EnterpriseAuthPlugin, build_plugin,
+    EnvVarAuth, WhlModuleAuth,
+)
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
@@ -33,15 +36,17 @@ def _remove_mock_module(name: str):
 class TestAuthPluginConfig:
 
     def test_defaults(self):
-        cfg = AuthPluginConfig()
+        # AuthPluginConfig is now an alias for WhlModuleAuth so requires token fields
+        cfg = AuthPluginConfig(token_module="m", token_func="f")
         assert cfg.setup_module is None
-        assert cfg.token_module is None
         assert cfg.refresh_on_401 is True
         assert cfg.token_ttl_seconds is None
 
     def test_is_configured_false_without_token(self):
-        cfg = AuthPluginConfig(setup_module="rbc_security", setup_func="enable_certs")
-        assert cfg.is_configured() is False  # no token_module/func
+        # EnvVarAuth doesn't have token_module/func — is_configured specific to WhlModuleAuth
+        whl_with_no_token = WhlModuleAuth.__new__(WhlModuleAuth)
+        cfg = AuthPluginConfig(token_module="", token_func="")
+        assert cfg.is_configured() is False  # empty token_module/func → not configured
 
     def test_is_configured_true(self):
         cfg = AuthPluginConfig(token_module="rbc_auth", token_func="get_auth_token")

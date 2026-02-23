@@ -313,5 +313,32 @@ def _print_banner(mode: str, model: str, directory: Path) -> None:
     console.print()
 
 
+@app.command(name="enterprise-init")
+def enterprise_init(
+    directory: Path = typer.Option(Path("."), "--dir", "-d",
+                                   help="Project directory to write .aicoder.yml into"),
+    output: Optional[Path] = typer.Option(None, "--output", "-o",
+                                          help="Custom output path (default: <dir>/.aicoder.yml)"),
+):
+    """
+    Interactive wizard — configure AICoder for an on-premise corporate LLM.
+
+    Walks through 5 steps (endpoint, auth, TLS, proxy, agent settings) and
+    writes a ready-to-use .aicoder.yml.  Works for any enterprise that follows
+    the standard pattern: acquire token → send to hosted LLM endpoint.
+    """
+    from aicoder.enterprise_wizard import run_wizard
+
+    dest = output or (directory.resolve() / ".aicoder.yml")
+
+    if dest.exists():
+        overwrite = typer.confirm(f"⚠️  {dest} already exists. Overwrite?", default=False)
+        if not overwrite:
+            console.print("[yellow]Aborted.[/yellow]")
+            raise typer.Exit()
+
+    run_wizard(dest)
+
+
 if __name__ == "__main__":
     app()

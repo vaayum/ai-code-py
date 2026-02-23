@@ -32,7 +32,11 @@ from typing import Literal, Optional
 import yaml
 from pydantic import BaseModel, Field
 
-from aicoder.enterprise_auth import AuthPluginConfig, EnterpriseAuthPlugin
+from aicoder.enterprise_auth import (
+    AuthPluginConfig, EnterpriseAuthPlugin,
+    EnvVarAuth, StaticKeyAuth, TokenEndpointAuth, WhlModuleAuth,
+    plugin_from_dict,
+)
 
 
 # ── Config schema ────────────────────────────────────────────────────────────
@@ -45,13 +49,16 @@ class AgentConfig(BaseModel):
 
 class EnterpriseConfig(BaseModel):
     """On-premise LLM configuration (OpenAI-compatible API)."""
-    base_url: str = ""                          # e.g. https://llm.corp.internal/v1
-    model: str = ""                             # e.g. codellama-70b, mistral-7b
-    api_key: str = ""                           # internal API token (if static)
-    tls_verify: bool = True                     # set False for dev/self-signed
-    ca_bundle: Optional[str] = None             # path to custom PEM bundle
-    proxy_url: Optional[str] = None             # e.g. http://proxy:3128
-    auth_plugin: Optional[AuthPluginConfig] = None  # dynamic .whl auth plugin
+    base_url: str = ""                           # e.g. https://llm.corp.internal/v1
+    model: str = ""                              # e.g. codellama-70b, mistral-7b
+    tls_verify: bool = True                      # set False for dev/self-signed
+    ca_bundle: Optional[str] = None              # path to custom PEM bundle
+    proxy_url: Optional[str] = None              # e.g. http://proxy:3128
+
+    # ── Auth (choose one) ─────────────────────────────────────────────────
+    api_key: str = ""                            # static key shorthand
+    auth_strategy: Optional[dict] = None         # generic typed strategy (see enterprise_auth.py)
+    auth_plugin: Optional[AuthPluginConfig] = None  # legacy whl_module shorthand
 
     def has_proxy(self) -> bool:
         return bool(self.proxy_url)
@@ -59,8 +66,15 @@ class EnterpriseConfig(BaseModel):
     def has_custom_tls(self) -> bool:
         return bool(self.ca_bundle) or not self.tls_verify
 
-    def has_auth_plugin(self) -> bool:
+    def has_auth_strategy(self) -> bool:
+        """True when a typed auth_strategy or legacy auth_plugin is configured."""
+        if self.auth_strategy:
+            return True
         return self.auth_plugin is not None and self.auth_plugin.is_configured()
+
+    # kept for backward compat
+    def has_auth_plugin(self) -> bool:
+        return self.has_auth_strategy()
 
 
 class AiCoderConfig(BaseModel):
@@ -152,7 +166,13 @@ def create_llm(provider: str, config: AiCoderConfig):
 
 
 def _create_enterprise_llm(config: AiCoderConfig, temp: float, max_tok: int):
-    """Create an LLM for on-premise / enterprise deployments."""
+    """Create an LLM for on-premise / enterprise deployments.
+
+    Auth resolution order:
+      1. auth_strategy dict  → routed through plugin_from_dict (all 4 strategies)
+      2. auth_plugin block   → legacy WhlModuleAuth (backward compat)
+      3. api_key / ENTERPRISE_LLM_KEY env var  → simple static key
+    """
     from langchain_openai import ChatOpenAI
 
     ent = config.enterprise
@@ -162,21 +182,32 @@ def _create_enterprise_llm(config: AiCoderConfig, temp: float, max_tok: int):
     base_url = ent.base_url or _require_env("ENTERPRISE_LLM_URL")
     model    = ent.model    or config.model or _require_env("ENTERPRISE_LLM_MODEL")
 
-    # ── Auth plugin (e.g. rbc_security + rbc_auth) ─────────────────────────
-    if ent.has_auth_plugin():
-        plugin = EnterpriseAuthPlugin(ent.auth_plugin)
-        plugin.setup()               # run enable_certs(force=True) etc.
-        api_key = plugin.get_token() # acquire initial bearer token
+    print(f"🏢 Enterprise LLM: {base_url} | model={model}")
+
+    # ── Resolve auth ────────────────────────────────────────────────────────
+    if ent.auth_strategy:
+        # Generic typed strategy — env_var / static_key / token_endpoint / whl_module
+        plugin = plugin_from_dict(ent.auth_strategy)
+        api_key = plugin.get_token()
         http_client = plugin.build_httpx_client(
             verify=ent.ca_bundle if ent.ca_bundle else ent.tls_verify,
             proxy_url=ent.proxy_url,
         )
+
+    elif ent.auth_plugin and ent.auth_plugin.is_configured():
+        # Legacy whl_module shorthand (backward compat)
+        plugin = EnterpriseAuthPlugin(ent.auth_plugin)
+        plugin.setup()
+        api_key = plugin.get_token()
+        http_client = plugin.build_httpx_client(
+            verify=ent.ca_bundle if ent.ca_bundle else ent.tls_verify,
+            proxy_url=ent.proxy_url,
+        )
+
     else:
-        # Static API key mode (fall back to env var)
+        # Static key fallback
         api_key     = ent.api_key or os.environ.get("ENTERPRISE_LLM_KEY", "none")
         http_client = _build_http_client(ent)
-
-    print(f"🏢 Enterprise LLM: {base_url} | model={model}")
 
     kwargs: dict = dict(
         api_key=api_key,
