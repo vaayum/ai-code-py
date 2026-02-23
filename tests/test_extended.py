@@ -414,33 +414,45 @@ class TestCLISmoke:
         output = result.stdout + result.stderr
         assert "0.1.0" in output
 
-    def test_fix_subcommand_help(self):
+    def test_smart_command_help(self):
+        """New unified smart command -- all flags visible at top level."""
         result = subprocess.run(
-            ["python", "-m", "aicoder.cli", "fix", "--help"],
+            ["python", "-m", "aicoder.cli", "--help"],
             cwd="/Users/nitinmudgal/.gemini/antigravity/scratch/ai-code-py",
             capture_output=True, text=True,
             env={**__import__("os").environ,
                  "PYTHONPATH": "/Users/nitinmudgal/.gemini/antigravity/scratch/ai-code-py"}
         )
+        output = result.stdout + result.stderr
         assert result.returncode == 0
-        assert "fix" in (result.stdout + result.stderr).lower()
+        assert "INSTRUCTION" in output          # the smart argument
+        assert "--agents" in output             # multi-agent flag
+        assert "--dry-run" in output
+        assert "--interactive" in output
+        assert "--since" in output              # audit git-range flag
 
-    def test_audit_subcommand_help(self):
+    def test_models_subcommand(self):
+        """aicoder models should print the model catalog."""
         result = subprocess.run(
-            ["python", "-m", "aicoder.cli", "audit", "--help"],
+            ["python", "-m", "aicoder.cli", "models"],
             cwd="/Users/nitinmudgal/.gemini/antigravity/scratch/ai-code-py",
             capture_output=True, text=True,
             env={**__import__("os").environ,
-                 "PYTHONPATH": "/Users/nitinmudgal/.gemini/antigravity/scratch/ai-code-py"}
+                 "PYTHONPATH": "/Users/nitinmudgal/.gemini/antigravity/scratch/ai-code-py",
+                 "DEEPSEEK_API_KEY": "sk-test-key"}   # satisfy auth check
         )
-        assert result.returncode == 0
+        output = result.stdout + result.stderr
+        # Should show model catalog — check for any known model ID or provider
+        assert any(kw in output for kw in ("deepseek", "anthropic", "BYOK", "Local", "claude", "gpt"))
 
-    def test_test_gen_subcommand_help(self):
-        result = subprocess.run(
-            ["python", "-m", "aicoder.cli", "test-gen", "--help"],
-            cwd="/Users/nitinmudgal/.gemini/antigravity/scratch/ai-code-py",
-            capture_output=True, text=True,
-            env={**__import__("os").environ,
-                 "PYTHONPATH": "/Users/nitinmudgal/.gemini/antigravity/scratch/ai-code-py"}
-        )
-        assert result.returncode == 0
+    def test_intent_classifier(self):
+        """Intent classifier maps keywords to correct modes without LLM."""
+        from aicoder.cli import _classify
+        assert _classify("fix the null pointer in UserService") == "fix"
+        assert _classify("audit for SQL injection and hardcoded secrets") == "audit"
+        assert _classify("check for security vulnerabilities") == "audit"
+        assert _classify("refactor payment module into repository pattern") == "refactor"
+        assert _classify("restructure and decouple the auth code") == "refactor"
+        assert _classify("add tests for the auth service") == "test-gen"
+        assert _classify("generate pytest coverage for UserService") == "test-gen"
+        assert _classify("add pagination to all endpoints") == "fix"  # default

@@ -1,7 +1,15 @@
-"""AICoder CLI — the main entry point (registered as `aicoder` by pyproject.toml)."""
+"""AICoder CLI — the main entry point (registered as `aicoder` by pyproject.toml).
+
+Usage (smart single command):
+    aicoder "fix the null-check bug in UserService"
+    aicoder "audit for SQL injection and hardcoded secrets"
+    aicoder "refactor payment module to use repository pattern"
+    aicoder "add tests for the auth module"
+    aicoder "add rate limiting to all API endpoints" --agents
+"""
 from __future__ import annotations
 
-from enum import Enum
+import re
 from pathlib import Path
 from typing import Optional
 
@@ -18,30 +26,40 @@ from aicoder.tools import AstTools, BuildTools, FileTools, GitTools, SearchTools
 
 app = typer.Typer(
     name="aicoder",
-    help="🤖 Autonomous AI coding agent — Python edition",
+    help="🤖 Autonomous AI coding agent — just describe what you want done.",
     no_args_is_help=False,
     rich_markup_mode="rich",
 )
 console = Console()
 
+# ── Intent classifier ─────────────────────────────────────────────────────────
+# Detects the type of task from natural language — no LLM call needed.
 
-class Provider(str, Enum):
-    openai    = "openai"
-    anthropic = "anthropic"
-    deepseek  = "deepseek"
-    ollama    = "ollama"
+_AUDIT_WORDS = re.compile(
+    r"\b(audit|review|check|scan|security|vulnerabilit|secret|leak|sql.?inject"
+    r"|xss|csrf|pentest|lint|smell|compliance|pii|gdpr)\b", re.I
+)
+_REFACTOR_WORDS = re.compile(
+    r"\b(refactor|restructure|reorganize|extract|rename|clean.?up|decouple"
+    r"|simplif|modularize|solid|dry|pattern|architecture|redesign)\b", re.I
+)
+_TEST_WORDS = re.compile(
+    r"\b(tests?|spec|unittest|pytest|coverage|assert|mock|fixture|tdd)\b", re.I
+)
 
 
-# ── Shared options ────────────────────────────────────────────────────────────
+def _classify(instruction: str) -> str:
+    """Return 'audit', 'refactor', 'test-gen', or 'fix' based on the instruction text."""
+    if _AUDIT_WORDS.search(instruction):
+        return "audit"
+    if _TEST_WORDS.search(instruction):
+        return "test-gen"
+    if _REFACTOR_WORDS.search(instruction):
+        return "refactor"
+    return "fix"
 
-def _common(
-    model: Provider = typer.Option(Provider.deepseek, "--model", "-m", help="LLM provider"),
-    directory: Path = typer.Option(Path("."), "--dir", "-d", help="Target project directory"),
-    config: Optional[Path] = typer.Option(None, "--config", help="Path to .aicoder.yml"),
-    dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
-):
-    pass  # used for type hints only
 
+# ── Setup ─────────────────────────────────────────────────────────────────────
 
 def _setup(
     model: str,
@@ -63,12 +81,12 @@ def _setup(
         ingestor = CodebaseIngestor(root)
         ingestor.ingest(quiet=True)
 
-    ft   = FileTools(root, dry_run=dry_run, interactive=interactive)
-    bt   = BuildTools(root)
-    gt   = GitTools(root)
-    st   = SearchTools(ingestor)
-    at   = AstTools(root)
-    mem  = AgentMemory(root)
+    ft  = FileTools(root, dry_run=dry_run, interactive=interactive)
+    bt  = BuildTools(root)
+    gt  = GitTools(root)
+    st  = SearchTools(ingestor)
+    at  = AstTools(root)
+    mem = AgentMemory(root)
 
     file_tools_list   = ft.get_tools()
     build_tools_list  = bt.get_tools()
@@ -76,157 +94,94 @@ def _setup(
     search_tools_list = st.get_tools()
     ast_tools_list    = at.get_tools()
 
-    all_tools      = file_tools_list + build_tools_list + git_tools_list + search_tools_list + ast_tools_list
-    ro_tools       = search_tools_list + [t for t in file_tools_list if t.name in ("read_file", "list_files")]
-    tester_tools   = build_tools_list + search_tools_list + [t for t in file_tools_list if t.name == "read_file"]
+    all_tools    = file_tools_list + build_tools_list + git_tools_list + search_tools_list + ast_tools_list
+    ro_tools     = search_tools_list + [t for t in file_tools_list if t.name in ("read_file", "list_files")]
+    tester_tools = build_tools_list + search_tools_list + [t for t in file_tools_list if t.name == "read_file"]
 
-    # ── MCP servers ────────────────────────────────────────────────────────
+    # ── MCP servers ────────────────────────────────────────────────────────────
     mcp_loader = McpServerLoader(root, mcp_config)
     if mcp_loader.config_exists():
         mcp_tools = mcp_loader.load_tools_sync()
         if mcp_tools:
             all_tools = all_tools + mcp_tools
             console.print(f"[green]✓[/green] {len(mcp_tools)} MCP tool(s) loaded")
-    elif mcp_config:  # user explicitly passed --mcp but file not found
+    elif mcp_config:
         console.print(f"[yellow]⚠️  MCP config not found: {mcp_config}[/yellow]")
 
     llm = create_llm(model, cfg)
     return llm, all_tools, ro_tools, tester_tools, mem
 
 
-# ── Commands ──────────────────────────────────────────────────────────────────
+# ── Main smart command ────────────────────────────────────────────────────────
 
 @app.callback(invoke_without_command=True)
 def default(
     ctx: typer.Context,
-    model: Provider = typer.Option(Provider.deepseek, "--model", "-m"),
-    directory: Path = typer.Option(Path("."), "--dir", "-d"),
-    config: Optional[Path] = typer.Option(None, "--config"),
-    version: bool = typer.Option(False, "--version", "-v", is_eager=True),
+    instruction: Optional[str] = typer.Argument(None, help="What to do — describe in plain English"),
+    model: str = typer.Option("deepseek", "--model", "-m", help="Provider: anthropic|openai|deepseek|gemini|ollama|enterprise"),
+    directory: Path = typer.Option(Path("."), "--dir", "-d", help="Target project directory"),
+    config: Optional[Path] = typer.Option(None, "--config", help="Path to .aicoder.yml"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
+    interactive: bool = typer.Option(False, "--interactive", "-i", help="Review each change before applying"),
+    agents: bool = typer.Option(False, "--agents", help="Use multi-agent pipeline (Planner→Coder→Reviewer→Tester)"),
+    since: Optional[str] = typer.Option(None, "--since", help="Git ref — only consider changes since this branch/commit"),
+    spec: Optional[Path] = typer.Option(None, "--spec", "-s", help="Design doc / spec file to follow"),
+    mcp: Optional[Path] = typer.Option(None, "--mcp", help="Path to mcp.json"),
+    version: bool = typer.Option(False, "--version", "-v", is_eager=True, help="Show version"),
 ):
-    """Launch interactive REPL when called with no subcommand."""
+    """
+    🤖 Describe what you want — AICoder figures out the rest.
+
+    Examples:
+
+      aicoder "fix the NPE in UserService"
+      aicoder "audit for SQL injection and hardcoded secrets"
+      aicoder "refactor payment module to use repository pattern"
+      aicoder "add tests for the auth service"
+      aicoder "add rate limiting to all endpoints" --agents
+      aicoder "implement auth" --spec design/auth-spec.md
+      aicoder "review security issues" --since main
+    """
     if version:
         console.print(f"aicoder {__version__}")
         raise typer.Exit()
 
-    if ctx.invoked_subcommand is None:
-        # Interactive mode
+    # Sub-command was explicitly invoked (models, enterprise-init, etc.)
+    if ctx.invoked_subcommand is not None:
+        return
+
+    # No instruction → launch interactive REPL
+    if not instruction:
         from aicoder.tui.shell import InteractiveShell
         cfg = load_config(config)
-        InteractiveShell(directory.resolve(), model.value, cfg).run()
-
-
-@app.command()
-def fix(
-    instruction: str = typer.Argument(..., help="What to fix"),
-    model: Provider = typer.Option(Provider.deepseek, "--model", "-m"),
-    directory: Path = typer.Option(Path("."), "--dir", "-d"),
-    config: Optional[Path] = typer.Option(None, "--config"),
-    mcp: Optional[Path] = typer.Option(None, "--mcp", help="Path to mcp.json (default: .aicoder/mcp.json)"),
-    spec: Optional[Path] = typer.Option(None, "--spec", "-s", help="Design doc / spec MD file"),
-    interactive: bool = typer.Option(False, "--interactive", "-i", help="Review each change before applying"),
-    dry_run: bool = typer.Option(False, "--dry-run"),
-):
-    """Fix a bug or implement a feature."""
-    _run_batch("fix", instruction, model.value, directory, config, dry_run, mcp, interactive, spec)
-
-
-@app.command()
-def refactor(
-    instruction: str = typer.Argument(..., help="What to refactor"),
-    model: Provider = typer.Option(Provider.deepseek, "--model", "-m"),
-    directory: Path = typer.Option(Path("."), "--dir", "-d"),
-    config: Optional[Path] = typer.Option(None, "--config"),
-    mcp: Optional[Path] = typer.Option(None, "--mcp"),
-    spec: Optional[Path] = typer.Option(None, "--spec", "-s"),
-    interactive: bool = typer.Option(False, "--interactive", "-i"),
-    dry_run: bool = typer.Option(False, "--dry-run"),
-):
-    """Refactor code without changing behavior."""
-    _run_batch("refactor", instruction, model.value, directory, config, dry_run, mcp, interactive, spec)
-
-
-@app.command()
-def audit(
-    instruction: str = typer.Argument(..., help="What to review"),
-    model: Provider = typer.Option(Provider.deepseek, "--model", "-m"),
-    directory: Path = typer.Option(Path("."), "--dir", "-d"),
-    since: Optional[str] = typer.Option(None, "--since", help="Git ref to diff from (e.g. main)"),
-    config: Optional[Path] = typer.Option(None, "--config"),
-    mcp: Optional[Path] = typer.Option(None, "--mcp"),
-    spec: Optional[Path] = typer.Option(None, "--spec", "-s"),
-):
-    """Review code for issues."""
-    full_instruction = instruction
-    if since:
-        full_instruction = f"{instruction}\n\nFocus on changes since: {since} (use get_diff_since tool)"
-    _run_batch("audit", full_instruction, model.value, directory, config, dry_run=True, mcp_config=mcp,
-               interactive=False, spec=spec)
-
-
-@app.command()
-def run(
-    instruction: str = typer.Argument(..., help="Task description"),
-    model: Provider = typer.Option(Provider.deepseek, "--model", "-m"),
-    directory: Path = typer.Option(Path("."), "--dir", "-d"),
-    agents: bool = typer.Option(False, "--agents", help="Enable multi-agent mode"),
-    config: Optional[Path] = typer.Option(None, "--config"),
-    mcp: Optional[Path] = typer.Option(None, "--mcp"),
-    spec: Optional[Path] = typer.Option(None, "--spec", "-s"),
-    interactive: bool = typer.Option(False, "--interactive", "-i"),
-    dry_run: bool = typer.Option(False, "--dry-run"),
-):
-    """Run a task (single-agent or multi-agent with --agents)."""
-    if agents:
-        _run_multi_agent(instruction, model.value, directory, config, dry_run, mcp, interactive, spec)
-    else:
-        _run_batch("run", instruction, model.value, directory, config, dry_run, mcp, interactive, spec)
-
-
-@app.command(name="test-gen")
-def test_gen(
-    target: str = typer.Argument(..., help="File or class to generate tests for"),
-    model: Provider = typer.Option(Provider.deepseek, "--model", "-m"),
-    directory: Path = typer.Option(Path("."), "--dir", "-d"),
-    config: Optional[Path] = typer.Option(None, "--config"),
-    mcp: Optional[Path] = typer.Option(None, "--mcp"),
-    spec: Optional[Path] = typer.Option(None, "--spec", "-s"),
-    interactive: bool = typer.Option(False, "--interactive", "-i"),
-    dry_run: bool = typer.Option(False, "--dry-run"),
-):
-    """Generate a comprehensive test suite for a file or class."""
-    instruction = (
-        f"Generate a comprehensive test suite for: {target}\n"
-        "1. Read the file to understand all public functions/methods\n"
-        "2. Check existing test files to match conventions\n"
-        "3. Write tests covering happy paths, edge cases, and error cases\n"
-        "4. Compile and run the tests\n"
-        "5. Fix any failures (max 3 retries)"
-    )
-    _run_batch("test-gen", instruction, model.value, directory, config, dry_run, mcp, interactive, spec)
-
-
-@app.command(name="mcp-init")
-def mcp_init(
-    directory: Path = typer.Option(Path("."), "--dir", "-d"),
-):
-    """Create a starter .aicoder/mcp.json in your project."""
-    from aicoder.mcp_loader import McpServerLoader
-    loader = McpServerLoader(directory.resolve())
-    target = directory.resolve() / ".aicoder" / "mcp.json"
-    if target.exists():
-        console.print(f"[yellow]Already exists: {target}[/yellow]")
+        InteractiveShell(directory.resolve(), model, cfg).run()
         return
-    target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(loader.example_config())
-    console.print(f"[green]✅ Created: {target}[/green]")
-    console.print("[dim]Edit it to add your MCP servers, then re-run any aicoder command.[/dim]")
+
+    # ── Auto-detect intent ────────────────────────────────────────────────────
+    mode = _classify(instruction)
+
+    # Augment instruction based on detected mode
+    if mode == "audit":
+        dry_run = True   # audits never write files
+        if since:
+            instruction = f"{instruction}\n\nFocus on changes since git ref: {since} (use get_diff_since tool)"
+    elif mode == "test-gen":
+        instruction = (
+            f"{instruction}\n\n"
+            "Steps: 1) Read the target file(s), 2) Check existing test conventions, "
+            "3) Write tests covering happy paths + edge cases + errors, 4) Run tests, "
+            "5) Fix failures (max 3 retries)."
+        )
+
+    if agents:
+        _run_multi_agent(instruction, mode, model, directory, config, dry_run, mcp, interactive, spec)
+    else:
+        _run_batch(instruction, mode, model, directory, config, dry_run, mcp, interactive, spec)
 
 
-# ── Internal helpers ──────────────────────────────────────────────────────────
+# ── Execution helpers ─────────────────────────────────────────────────────────
 
 def _load_spec(spec: Path | None) -> str:
-    """Read a design doc / spec MD file. Returns formatted context block or empty string."""
     if spec is None:
         return ""
     path = Path(spec).resolve()
@@ -244,11 +199,17 @@ def _load_spec(spec: Path | None) -> str:
     )
 
 
-def _run_batch(mode: str, instruction: str, model: str,
-               directory: Path, config: Path | None, dry_run: bool,
-               mcp_config: Path | None = None,
-               interactive: bool = False,
-               spec: Path | None = None) -> None:
+def _run_batch(
+    instruction: str,
+    mode: str,
+    model: str,
+    directory: Path,
+    config: Path | None,
+    dry_run: bool,
+    mcp_config: Path | None = None,
+    interactive: bool = False,
+    spec: Path | None = None,
+) -> None:
     from aicoder.agents.single_agent import run_single_agent
 
     _print_banner(mode, model, directory)
@@ -274,14 +235,20 @@ def _run_batch(mode: str, instruction: str, model: str,
     memory.save()
 
 
-def _run_multi_agent(instruction: str, model: str,
-                     directory: Path, config: Path | None, dry_run: bool,
-                     mcp_config: Path | None = None,
-                     interactive: bool = False,
-                     spec: Path | None = None) -> None:
+def _run_multi_agent(
+    instruction: str,
+    mode: str,
+    model: str,
+    directory: Path,
+    config: Path | None,
+    dry_run: bool,
+    mcp_config: Path | None = None,
+    interactive: bool = False,
+    spec: Path | None = None,
+) -> None:
     from aicoder.agents.multi_agent import run_multi_agent
 
-    _print_banner("multi-agent", model, directory)
+    _print_banner(f"multi-agent / {mode}", model, directory)
     if interactive:
         console.print("[bold yellow]🔍 Interactive mode — you will approve each file change[/bold yellow]")
 
@@ -298,13 +265,13 @@ def _run_multi_agent(instruction: str, model: str,
     console.rule("[dim]Final Summary[/dim]", style="dim")
     from rich.markdown import Markdown
     console.print(Markdown(result))
-    memory.add_action(f"MULTI-AGENT: {instruction[:80]}")
+    memory.add_action(f"MULTI-AGENT/{mode.upper()}: {instruction[:80]}")
     memory.save()
 
 
 def _print_banner(mode: str, model: str, directory: Path) -> None:
     console.print(Panel(
-        f"[bold]Mode:[/bold]  {mode}\n"
+        f"[bold]Task:[/bold]  {mode}\n"
         f"[bold]Model:[/bold] {model}\n"
         f"[bold]Dir:[/bold]   {directory.resolve()}",
         title="[bold cyan]🤖 AICoder[/bold cyan]",
@@ -312,6 +279,8 @@ def _print_banner(mode: str, model: str, directory: Path) -> None:
     ))
     console.print()
 
+
+# ── Utility commands ──────────────────────────────────────────────────────────
 
 @app.command(name="models")
 def list_models():
@@ -331,8 +300,7 @@ def enterprise_init(
     Interactive wizard — configure AICoder for an on-premise corporate LLM.
 
     Walks through 5 steps (endpoint, auth, TLS, proxy, agent settings) and
-    writes a ready-to-use .aicoder.yml.  Works for any enterprise that follows
-    the standard pattern: acquire token → send to hosted LLM endpoint.
+    writes a ready-to-use .aicoder.yml.
     """
     from aicoder.enterprise_wizard import run_wizard
 
@@ -345,6 +313,23 @@ def enterprise_init(
             raise typer.Exit()
 
     run_wizard(dest)
+
+
+@app.command(name="mcp-init")
+def mcp_init(
+    directory: Path = typer.Option(Path("."), "--dir", "-d"),
+):
+    """Create a starter .aicoder/mcp.json in your project."""
+    from aicoder.mcp_loader import McpServerLoader
+    loader = McpServerLoader(directory.resolve())
+    target = directory.resolve() / ".aicoder" / "mcp.json"
+    if target.exists():
+        console.print(f"[yellow]Already exists: {target}[/yellow]")
+        return
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(loader.example_config())
+    console.print(f"[green]✅ Created: {target}[/green]")
+    console.print("[dim]Edit it to add your MCP servers, then re-run any aicoder command.[/dim]")
 
 
 if __name__ == "__main__":
