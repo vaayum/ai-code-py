@@ -122,24 +122,26 @@ def load_config(path: Path | None = None) -> AiCoderConfig:
 MODEL_CATALOG = {
     "byok": [
         # id, provider, env_var, display_name, note
-        ("claude-3-5-sonnet-20241022", "anthropic",  "ANTHROPIC_API_KEY",  "Claude 3.5 Sonnet",     "⭐ Best agentic tool-use, 200K ctx — recommended default"),
-        ("claude-3-7-sonnet",         "anthropic",  "ANTHROPIC_API_KEY",  "Claude 3.7 Sonnet",     "Extended thinking, best for complex audit/reasoning"),
-        ("deepseek-chat",             "deepseek",   "DEEPSEEK_API_KEY",   "DeepSeek V3",           "💰 10× cheaper than OpenAI, excellent code quality"),
-        ("deepseek-reasoner",         "deepseek",   "DEEPSEEK_API_KEY",   "DeepSeek R1 (Reasoner)","Chain-of-thought — for hard bugs and complex refactors"),
-        ("gpt-4o",                    "openai",     "OPENAI_API_KEY",     "GPT-4o",                "Fast, bulletproof tool calling, 128K ctx"),
-        ("gpt-4o-mini",               "openai",     "OPENAI_API_KEY",     "GPT-4o mini",           "Budget OpenAI option — fast and cheap"),
-        ("o3-mini",                   "openai",     "OPENAI_API_KEY",     "o3-mini (reasoning)",   "Best for audit/debugging chains"),
-        ("gemini-2.0-flash",          "gemini",     "GOOGLE_API_KEY",     "Gemini 2.0 Flash",      "1M token context — great for whole-codebase analysis"),
-        ("gemini-2.0-pro",            "gemini",     "GOOGLE_API_KEY",     "Gemini 2.0 Pro",        "Best Gemini for code, strong reasoning"),
+        ("claude-opus-4-6",              "anthropic", "ANTHROPIC_API_KEY", "Claude Opus 4.6",       "⭐ Best for agents & coding — most intelligent"),
+        ("claude-sonnet-4-6",            "anthropic", "ANTHROPIC_API_KEY", "Claude Sonnet 4.6",     "Best speed+intelligence balance — recommended default"),
+        ("claude-haiku-4-5-20251001",    "anthropic", "ANTHROPIC_API_KEY", "Claude Haiku 4.5",     "Fastest Claude — budget/high-volume use"),
+        ("claude-3-7-sonnet-20250219",   "anthropic", "ANTHROPIC_API_KEY", "Claude 3.7 Sonnet",    "Extended thinking, previous gen stable option"),
+        ("deepseek-chat",                "deepseek",  "DEEPSEEK_API_KEY",  "DeepSeek V3",          "💰 10× cheaper than OpenAI, excellent code quality"),
+        ("deepseek-reasoner",            "deepseek",  "DEEPSEEK_API_KEY",  "DeepSeek R1 (Reasoner)","Chain-of-thought — for hard bugs and complex refactors"),
+        ("gpt-4o",                       "openai",    "OPENAI_API_KEY",    "GPT-4o",               "Fast, bulletproof tool calling, 128K ctx"),
+        ("gpt-4o-mini",                  "openai",    "OPENAI_API_KEY",    "GPT-4o mini",          "Budget OpenAI option — fast and cheap"),
+        ("o3-mini",                      "openai",    "OPENAI_API_KEY",    "o3-mini (reasoning)",  "Best for audit/debugging chains"),
+        ("gemini-2.0-flash",             "gemini",    "GOOGLE_API_KEY",    "Gemini 2.0 Flash",     "1M token context — great for whole-codebase analysis"),
+        ("gemini-2.0-pro",               "gemini",    "GOOGLE_API_KEY",    "Gemini 2.0 Pro",       "Best Gemini for code, strong reasoning"),
     ],
     "local": [
         # id (ollama pull name), min_vram_gb, display_name, note
-        ("qwen2.5-coder:32b",   24, "Qwen2.5-Coder 32B",     "⭐ Best local coding model — beats many cloud models"),
-        ("qwen2.5-coder:7b",     6, "Qwen2.5-Coder 7B",      "Consumer GPU (RTX 3080) — great tool-use"),
-        ("llama3.1:70b",        48, "Llama 3.1 70B",          "Best general-purpose local, 128K ctx, excellent tool-use"),
-        ("llama3.2:3b",          4, "Llama 3.2 3B",           "Ultra-low resource — for CI/hobbyist use"),
-        ("deepseek-coder-v2:16b",12, "DeepSeek-Coder-V2 16B", "Strong coder, runs on 12GB VRAM"),
-        ("mistral:7b",           6, "Mistral 7B",             "General fallback, wide hardware support"),
+        ("qwen2.5-coder:32b",    24, "Qwen2.5-Coder 32B",      "⭐ Best local coding model — beats many cloud models"),
+        ("qwen2.5-coder:7b",      6, "Qwen2.5-Coder 7B",       "Consumer GPU (RTX 3080) — great tool-use"),
+        ("llama3.1:70b",         48, "Llama 3.1 70B",           "Best general-purpose local, 128K ctx, excellent tool-use"),
+        ("llama3.2:3b",           4, "Llama 3.2 3B",            "Ultra-low resource — for CI/hobbyist use"),
+        ("deepseek-coder-v2:16b",12, "DeepSeek-Coder-V2 16B",  "Strong coder, runs on 12GB VRAM"),
+        ("mistral:7b",            6, "Mistral 7B",              "General fallback, wide hardware support"),
     ],
 }
 
@@ -168,7 +170,7 @@ def create_llm(provider: str, config: AiCoderConfig):
         case "anthropic":
             from langchain_anthropic import ChatAnthropic
             key = _require_env("ANTHROPIC_API_KEY")
-            model = config.model or "claude-3-5-sonnet-20241022"
+            model = config.model or "claude-sonnet-4-6"
             return ChatAnthropic(api_key=key, model_name=model, temperature=temp, max_tokens=max_tok)
 
         case "deepseek":
