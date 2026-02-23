@@ -14,7 +14,7 @@ from aicoder.config import AiCoderConfig, create_llm, load_config
 from aicoder.ingestor import CodebaseIngestor
 from aicoder.memory import AgentMemory
 from aicoder.mcp_loader import McpServerLoader
-from aicoder.tools import BuildTools, FileTools, GitTools, SearchTools
+from aicoder.tools import AstTools, BuildTools, FileTools, GitTools, SearchTools
 
 app = typer.Typer(
     name="aicoder",
@@ -67,14 +67,16 @@ def _setup(
     bt   = BuildTools(root)
     gt   = GitTools(root)
     st   = SearchTools(ingestor)
+    at   = AstTools(root)
     mem  = AgentMemory(root)
 
     file_tools_list   = ft.get_tools()
     build_tools_list  = bt.get_tools()
     git_tools_list    = gt.get_tools()
     search_tools_list = st.get_tools()
+    ast_tools_list    = at.get_tools()
 
-    all_tools      = file_tools_list + build_tools_list + git_tools_list + search_tools_list
+    all_tools      = file_tools_list + build_tools_list + git_tools_list + search_tools_list + ast_tools_list
     ro_tools       = search_tools_list + [t for t in file_tools_list if t.name in ("read_file", "list_files")]
     tester_tools   = build_tools_list + search_tools_list + [t for t in file_tools_list if t.name == "read_file"]
 
