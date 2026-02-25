@@ -528,7 +528,8 @@ AICoder indexes your codebase with **ChromaDB + sentence-transformers** for sema
 aicoder fix "Add retry logic to all payment operations" --model deepseek
 ```
 
-On first run, the codebase is indexed automatically. Subsequent runs use the cached index.
+- **Lazy Loading**: On the first run, the codebase is indexed automatically. Subsequent runs start up instantly using the cached SQLite index. Use `--reindex` to force a rebuild.
+- **Real-time Hot-Reloading**: The vector index updates automatically in the background whenever the agent creates, edits, or deletes files.
 
 ---
 
@@ -546,7 +547,11 @@ aicoder fix "Add logging to payment module" --model deepseek
 # → Agent applies structlog JSON logging without being told
 ```
 
-Memory tracks recent actions, learned conventions, and project-specific patterns.
+Memory tracks:
+- **Recent Actions**: History of recent commands.
+- **Learned Conventions**: Automatically or manually saved project patterns.
+- **Project Summary**: An auto-generated high-level description of your codebase.
+- **Key Files**: Frequently accessed files are tracked; popular files are promoted to key files and injected into the agent's context.
 
 ---
 
