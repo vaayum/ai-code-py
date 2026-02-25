@@ -1,0 +1,38 @@
+version: '3.8'
+
+services:
+  # The Ollama service to run local LLM models (e.g. qwen2.5-coder)
+  ollama:
+    image: ollama/ollama:latest
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    # Uncomment the below block if you have an NVIDIA GPU for much faster generations
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]
+
+    # The AICoder agent service
+  aicoder:
+    build: .
+    # Mount the current directory on the host to /workspace inside the container
+    # This allows the agent to read and write your actual code
+    volumes:
+      - .:/workspace
+    environment:
+      # Tell AICoder to route local requests to the Ollama container instead of localhost
+      - OLLAMA_HOST=http://ollama:11434
+    depends_on:
+      - ollama
+    # Keep standard input open for interactive REPL shell
+    stdin_open: true
+    tty: true
+
+volumes:
+  # Persistent volume so you don't have to redownload models every time
+  ollama_data:
