@@ -69,6 +69,8 @@ def _setup(
     directory: Path,
     config_path: Path | None,
     dry_run: bool,
+    mcp_config: Path | None = None,
+    interactive: bool = False,
     reindex: bool = False,
 ):
     """Load config, build tools, create LLM. Returns (llm, all_tools, ro_tools, build_tools, memory)."""
@@ -87,12 +89,12 @@ def _setup(
     else:
         console.print("[dim]✓ Base index loaded (lazy)[/dim]")
 
+    mem = AgentMemory(root)
     ft  = FileTools(root, dry_run=dry_run, interactive=interactive, memory=mem, ingestor=ingestor)
     bt  = BuildTools(root)
     gt  = GitTools(root)
     st  = SearchTools(ingestor)
     at  = AstTools(root)
-    mem = AgentMemory(root)
 
     file_tools_list   = ft.get_tools()
     build_tools_list  = bt.get_tools()
