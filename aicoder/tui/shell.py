@@ -29,6 +29,7 @@ from prompt_toolkit.formatted_text import HTML
 from prompt_toolkit.history import FileHistory
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.styles import Style
+from prompt_toolkit.completion import Completer, Completion
 
 # ── AICoder internals ─────────────────────────────────────────────────────────
 from aicoder.agents.single_agent import (
@@ -54,9 +55,32 @@ _STYLE = Style.from_dict({
     "prompt":        "#00ff87 bold",
     "prompt.arrow":  "#00ff87",
     "bottom-toolbar": "bg:#1a1a2e fg:#888888",
+    "completion-menu.completion": "bg:#1a1a2e fg:#aaaaaa",
+    "completion-menu.completion.current": "bg:#00ff87 fg:#000000",
 })
 
 _BINDINGS = KeyBindings()
+
+class SlashCommandCompleter(Completer):
+    COMMANDS = [
+        ('/help', 'Show all available slash commands'),
+        ('/clear', 'Clear the screen'),
+        ('/quit', 'Exit AICoder'),
+        ('/exit', 'Exit AICoder'),
+        ('/memory', 'View the agent\'s memory'),
+        ('/files', 'List files modified this session'),
+        ('/diff', 'Show git diff of modified files'),
+        ('/branch', 'Show current git branch'),
+        ('/tests', 'Run the test suite'),
+        ('/undo', 'Revert the last file update'),
+    ]
+
+    def get_completions(self, document, complete_event):
+        text = document.text_before_cursor
+        if text.startswith('/'):
+            for cmd, desc in self.COMMANDS:
+                if cmd.startswith(text):
+                    yield Completion(cmd, start_position=-len(text), display_meta=desc)
 
 
 @_BINDINGS.add("c-c")
@@ -170,6 +194,7 @@ class InteractiveShell:
         session: PromptSession = PromptSession(
             history=FileHistory(str(history_file)),
             auto_suggest=AutoSuggestFromHistory(),
+            completer=SlashCommandCompleter(),
             key_bindings=_BINDINGS,
             style=_STYLE,
             enable_history_search=True,
