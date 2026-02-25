@@ -1,3 +1,4 @@
+
 """AICoder CLI — the main entry point (registered as `aicoder` by pyproject.toml).
 
 Usage (smart single command):
@@ -19,6 +20,7 @@ from rich.panel import Panel
 
 from aicoder import __version__
 from aicoder.config import AiCoderConfig, create_llm, load_config
+from aicoder.tools.memory_tools import make_memory_tools
 from aicoder.ingestor import CodebaseIngestor
 from aicoder.memory import AgentMemory
 from aicoder.mcp_loader import McpServerLoader
@@ -67,8 +69,7 @@ def _setup(
     directory: Path,
     config_path: Path | None,
     dry_run: bool,
-    mcp_config: Path | None = None,
-    interactive: bool = False,
+    reindex: bool = False,
 ):
     """Load config, build tools, create LLM. Returns (llm, all_tools, ro_tools, build_tools, memory)."""
     root = directory.resolve()
@@ -77,12 +78,16 @@ def _setup(
         raise typer.Exit(1)
 
     cfg = load_config(config_path)
+    ingestor = CodebaseIngestor(root)
 
-    with console.status("[cyan]Indexing codebase...[/cyan]", spinner="dots"):
-        ingestor = CodebaseIngestor(root)
-        ingestor.ingest(quiet=True)
+    new_chunks = 0
+    if not ingestor.is_indexed() or reindex:
+        with console.status("[cyan]Indexing codebase (first run or --reindex)...[/cyan]", spinner="dots"):
+            new_chunks = ingestor.ingest(quiet=True)
+    else:
+        console.print("[dim]✓ Base index loaded (lazy)[/dim]")
 
-    ft  = FileTools(root, dry_run=dry_run, interactive=interactive)
+    ft  = FileTools(root, dry_run=dry_run, interactive=interactive, memory=mem, ingestor=ingestor)
     bt  = BuildTools(root)
     gt  = GitTools(root)
     st  = SearchTools(ingestor)
@@ -94,9 +99,10 @@ def _setup(
     git_tools_list    = gt.get_tools()
     search_tools_list = st.get_tools()
     ast_tools_list    = at.get_tools()
+    memory_tools_list = make_memory_tools(mem)
 
-    all_tools    = file_tools_list + build_tools_list + git_tools_list + search_tools_list + ast_tools_list
-    ro_tools     = search_tools_list + [t for t in file_tools_list if t.name in ("read_file", "list_files")]
+    all_tools    = file_tools_list + build_tools_list + git_tools_list + search_tools_list + ast_tools_list + memory_tools_list
+    ro_tools     = search_tools_list + memory_tools_list + [t for t in file_tools_list if t.name in ("read_file", "list_files")]
     tester_tools = build_tools_list + search_tools_list + [t for t in file_tools_list if t.name == "read_file"]
 
     # ── MCP servers ────────────────────────────────────────────────────────────
@@ -110,6 +116,16 @@ def _setup(
         console.print(f"[yellow]⚠️  MCP config not found: {mcp_config}[/yellow]")
 
     llm = create_llm(model, cfg)
+
+    if not mem.project_summary and new_chunks > 0:
+        with console.status("[cyan]Generating project summary...[/cyan]", spinner="dots"):
+            from aicoder.summarizer import generate_project_summary
+            summary = generate_project_summary(llm, root)
+            if summary:
+                mem.set_project_summary(summary)
+                mem.save()
+                console.print(f"[green]✓[/green] [dim]{summary}[/dim]\n")
+
     return llm, all_tools, ro_tools, tester_tools, mem
 
 
@@ -124,6 +140,7 @@ def default(
     config: Optional[Path] = typer.Option(None, "--config", help="Path to .aicoder.yml"),
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
     interactive: bool = typer.Option(False, "--interactive", "-i", help="Review each change before applying"),
+    reindex: bool = typer.Option(False, "--reindex", help="Force a full rebuild of the codebase vector index"),
     agents: bool = typer.Option(False, "--agents", help="Use multi-agent pipeline (Planner→Coder→Reviewer→Tester)"),
     since: Optional[str] = typer.Option(None, "--since", help="Git ref — only consider changes since this branch/commit"),
     spec: Optional[Path] = typer.Option(None, "--spec", "-s", help="Design doc / spec file to follow"),
@@ -155,7 +172,7 @@ def default(
     if not instruction:
         from aicoder.tui.shell import InteractiveShell
         cfg = load_config(config)
-        InteractiveShell(directory.resolve(), model, cfg).run()
+        InteractiveShell(directory.resolve(), model, cfg, reindex=reindex).run()
         return
 
     # ── Auto-detect intent ────────────────────────────────────────────────────
@@ -175,9 +192,9 @@ def default(
         )
 
     if agents:
-        _run_multi_agent(instruction, mode, model, directory, config, dry_run, mcp, interactive, spec)
+        _run_multi_agent(instruction, mode, model, directory, config, dry_run, mcp, interactive, spec, reindex)
     else:
-        _run_batch(instruction, mode, model, directory, config, dry_run, mcp, interactive, spec)
+        _run_batch(instruction, mode, model, directory, config, dry_run, mcp, interactive, spec, reindex)
 
 
 # ── Execution helpers ─────────────────────────────────────────────────────────
@@ -210,6 +227,7 @@ def _run_batch(
     mcp_config: Path | None = None,
     interactive: bool = False,
     spec: Path | None = None,
+    reindex: bool = False,
 ) -> None:
     from aicoder.agents.single_agent import stream_agent_events
     from aicoder.tui.renderer import LiveRenderer
@@ -220,7 +238,9 @@ def _run_batch(
     if dry_run:
         console.print("[bold dim]👁  Dry-run — no files will be written[/bold dim]")
 
-    llm, all_tools, _, _, memory = _setup(model, directory, config, dry_run, mcp_config, interactive)
+    llm, all_tools, _, _, memory = _setup(
+        model, directory, config, dry_run, mcp_config, interactive, reindex
+    )
     spec_ctx   = _load_spec(spec)
     memory_ctx = memory.to_prompt_context()
 
@@ -253,6 +273,7 @@ def _run_multi_agent(
     mcp_config: Path | None = None,
     interactive: bool = False,
     spec: Path | None = None,
+    reindex: bool = False,
 ) -> None:
     from aicoder.agents.multi_agent import run_multi_agent
 
@@ -261,7 +282,7 @@ def _run_multi_agent(
         console.print("[bold yellow]🔍 Interactive mode — you will approve each file change[/bold yellow]")
 
     llm, all_tools, ro_tools, build_tools_list, memory = _setup(
-        model, directory, config, dry_run, mcp_config, interactive
+        model, directory, config, dry_run, mcp_config, interactive, reindex
     )
     spec_ctx = _load_spec(spec)
     full_instruction = instruction + spec_ctx

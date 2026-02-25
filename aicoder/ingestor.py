@@ -5,7 +5,7 @@ import hashlib
 import re
 from pathlib import Path
 
-EXCLUDED_DIRS = {".git", "target", "build", ".idea", ".vscode",
+EXCLUDED_DIRS = {".git", "target", "build", ".idea", ".vscode", ".aicoder",
                  "node_modules", ".gradle", "__pycache__", ".venv", "venv", "dist"}
 SUPPORTED_EXTS = {".py", ".java", ".ts", ".js", ".go", ".rs", ".kt",
                   ".xml", ".yaml", ".yml", ".json", ".md", ".txt", ".toml"}
@@ -33,19 +33,28 @@ class CodebaseIngestor:
 
     # ── Public API ────────────────────────────────────────────────────────
 
-    def ingest(self, quiet: bool = False) -> int:
-        """Index new/changed files. Returns number of new chunks added."""
+    def is_indexed(self) -> bool:
+        """Check if the codebase has an existing index."""
+        if not self._fp_file.exists():
+            return False
+        # Fast check if chromadb has any data
+        db_file = self._cache_dir / "chroma.sqlite3"
+        return db_file.exists() and db_file.stat().st_size > 0
+
+    def _init_db(self):
+        """Lazy load the chromadb collection and fingerprints."""
+        if self._collection is not None:
+            return
+
         import json
         import chromadb
         from chromadb.utils import embedding_functions
 
         self._cache_dir.mkdir(parents=True, exist_ok=True)
 
-        # Load fingerprints
         if self._fp_file.exists():
             self._fingerprints = json.loads(self._fp_file.read_text())
 
-        # ChromaDB with sentence-transformers embedding
         client = chromadb.PersistentClient(path=str(self._cache_dir))
         ef = embedding_functions.SentenceTransformerEmbeddingFunction(
             model_name="all-MiniLM-L6-v2"
@@ -53,6 +62,12 @@ class CodebaseIngestor:
         self._collection = client.get_or_create_collection(
             name="codebase", embedding_function=ef
         )
+        self._total_chunks = self._collection.count()
+
+    def ingest(self, quiet: bool = False) -> int:
+        """Full index scan of new/changed files. Returns number of new chunks added."""
+        import json
+        self._init_db()
 
         # Collect and filter dirty files
         all_files = self._collect_files()
@@ -82,14 +97,78 @@ class CodebaseIngestor:
             self._collection.upsert(documents=texts, metadatas=metas, ids=ids)
             new_chunks += len(chunks)
 
+        # ── Prune deleted files ────────────────────────────────────────────
+        current_rels = {str(f.relative_to(self.root)) for f in all_files}
+        stale = [rel for rel in list(self._fingerprints) if rel not in current_rels]
+        if stale:
+            for rel in stale:
+                del self._fingerprints[rel]
+                # Remove all ChromaDB chunks for this file (match by metadata)
+                try:
+                    existing = self._collection.get(where={"file": rel})
+                    if existing and existing.get("ids"):
+                        self._collection.delete(ids=existing["ids"])
+                except Exception:
+                    pass
+            if not quiet:
+                print(f"   🗑️  Pruned {len(stale)} deleted file(s) from index")
+
         self._total_chunks = self._collection.count()
 
-        # Persist fingerprints
         self._fp_file.write_text(json.dumps(self._fingerprints, indent=2))
         return new_chunks
 
+    def ingest_file(self, f: Path) -> int:
+        """Re-index a single file immediately. Useful for hot-reloading after agent edits."""
+        import json
+        self._init_db()
+        f = f.resolve()
+        
+        if not f.exists() or f.suffix not in SUPPORTED_EXTS:
+            return 0
+            
+        rel = str(f.relative_to(self.root))
+        sha = _sha256(f)
+        
+        # Skip if identical
+        if sha == self._fingerprints.get(rel):
+            return 0
+            
+        chunks = self._chunk_file(f)
+        if not chunks:
+            return 0
+            
+        ids = [_chunk_id(f, i) for i in range(len(chunks))]
+        texts = [c["text"] for c in chunks]
+        metas = [c["meta"] for c in chunks]
+        
+        self._collection.upsert(documents=texts, metadatas=metas, ids=ids)
+        self._fingerprints[rel] = sha
+        self._total_chunks = self._collection.count()
+        self._fp_file.write_text(json.dumps(self._fingerprints, indent=2))
+        return len(chunks)
+
+    def remove_file(self, f: Path) -> None:
+        """Remove a single file from the index. Useful for hot-reloading after agent deletes."""
+        import json
+        self._init_db()
+        f = f.resolve()
+        rel = str(f.relative_to(self.root))
+        
+        if rel in self._fingerprints:
+            del self._fingerprints[rel]
+            try:
+                existing = self._collection.get(where={"file": rel})
+                if existing and existing.get("ids"):
+                    self._collection.delete(ids=existing["ids"])
+            except Exception:
+                pass
+            self._total_chunks = self._collection.count()
+            self._fp_file.write_text(json.dumps(self._fingerprints, indent=2))
+
     def search(self, query: str, max_results: int = 5) -> str:
         """Semantic search — returns formatted snippets with file + score."""
+        self._init_db()
         if self._collection is None:
             return "⚠️  Index not built yet. Call ingest() first."
         results = self._collection.query(

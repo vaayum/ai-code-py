@@ -19,6 +19,9 @@ from rich.console import Console
 from rich.syntax import Syntax
 from rich.text import Text
 
+from aicoder.memory import AgentMemory
+from aicoder.ingestor import CodebaseIngestor
+
 _console = Console()
 
 
@@ -108,11 +111,15 @@ class FileTools:
         interactive: bool = False,
         max_reads_per_minute: int = 50,
         max_writes_per_minute: int = 10,
+        memory: AgentMemory | None = None,
+        ingestor: CodebaseIngestor | None = None,
     ) -> None:
         self.root = project_root.resolve()
         self.dry_run = dry_run
         self.interactive = interactive
         self._state = _ApprovalState()
+        self.memory = memory
+        self.ingestor = ingestor
         
         # Rate limiting configuration
         self.max_reads_per_minute = max_reads_per_minute
@@ -167,6 +174,15 @@ class FileTools:
             target = _resolve(root, path)
             if not target.exists():
                 return f"❌ File not found: {path}"
+            
+            if self.memory:
+                try:
+                    rel_path = str(target.relative_to(root))
+                    self.memory.record_file_read(rel_path)
+                    self.memory.save()
+                except ValueError:
+                    pass
+
             lines = target.read_text(errors="replace").splitlines()
             return "\n".join(f"{i+1:4}: {line}" for i, line in enumerate(lines))
 
@@ -211,6 +227,13 @@ class FileTools:
 
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_text(content)
+            
+            if self.ingestor:
+                try:
+                    self.ingestor.ingest_file(target)
+                except Exception as e:
+                    _console.print(f"[yellow]⚠️ Could not re-index {path}: {e}[/yellow]")
+                    
             return f"✅ Created: {path}"
 
         @tool
@@ -245,6 +268,13 @@ class FileTools:
                     raise SystemExit("User quit the session.")
 
             target.write_text(updated)
+            
+            if self.ingestor:
+                try:
+                    self.ingestor.ingest_file(target)
+                except Exception as e:
+                    _console.print(f"[yellow]⚠️ Could not re-index {path}: {e}[/yellow]")
+                    
             return f"✅ Updated: {path}"
 
         @tool
@@ -273,6 +303,13 @@ class FileTools:
                     raise SystemExit("User quit the session.")
 
             target.unlink()
+            
+            if self.ingestor:
+                try:
+                    self.ingestor.remove_file(target)
+                except Exception as e:
+                    pass
+                    
             return f"✅ Deleted: {path}"
 
         return [read_file, list_files, create_file, update_file, delete_file]

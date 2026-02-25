@@ -44,6 +44,7 @@ from aicoder.ingestor import CodebaseIngestor
 from aicoder.memory import AgentMemory
 from aicoder.tui.renderer import LiveRenderer, render_diff
 from aicoder.tools import AstTools, BuildTools, FileTools, GitTools, SearchTools
+from aicoder.tools.memory_tools import make_memory_tools
 
 console = Console()
 
@@ -105,10 +106,12 @@ class InteractiveShell:
         project_root: Path,
         model_provider: str,
         config: AiCoderConfig | None = None,
+        reindex: bool = False,
     ) -> None:
         self.root     = project_root.resolve()
         self.provider = model_provider
         self.config   = config or load_config()
+        self.reindex  = reindex
         self._written_files: list[tuple[str, str, str]] = []   # (path, old, new)
 
     # ── Public entry point ────────────────────────────────────────────────────
@@ -116,35 +119,47 @@ class InteractiveShell:
     def run(self) -> None:
         console.print(_BANNER)
 
-        # Load memory
+        # Load memory and show stats
         memory = AgentMemory(self.root)
-        n = len(memory.recent_actions)
-        if n:
-            console.print(f"[dim]💾 Memory: {n} past action{'s' if n > 1 else ''}[/dim]")
+        if memory.recent_actions or memory.key_files or memory.conventions:
+            console.print(f"[dim]{memory.stats()}[/dim]")
 
         console.print(f"[dim]📁 {self.root}[/dim]")
 
         # Index codebase
-        with console.status("[cyan]Indexing codebase...[/cyan]", spinner="dots"):
-            ingestor = CodebaseIngestor(self.root)
-            new_chunks = ingestor.ingest(quiet=True)
+        ingestor = CodebaseIngestor(self.root)
+        new_chunks = 0
+        if not ingestor.is_indexed() or self.reindex:
+            with console.status("[cyan]Indexing codebase (first run or --reindex)...[/cyan]", spinner="dots"):
+                new_chunks = ingestor.ingest(quiet=True)
+            console.print(
+                f"[green]✓[/green] [bold]{ingestor.total_chunks}[/bold] chunks indexed"
+                + (f"  [dim]({new_chunks} new)[/dim]" if new_chunks else "")
+            )
+        else:
+            console.print("[dim]✓ Base index loaded (lazy)[/dim]")
 
-        console.print(
-            f"[green]✓[/green] [bold]{ingestor.total_chunks}[/bold] chunks indexed"
-            + (f"  [dim]({new_chunks} new)[/dim]" if new_chunks else "")
-        )
-
-        # Build tools
-        file_tools    = FileTools(self.root).get_tools()
+        # Build tools (including memory tools bound to this session's memory)
+        file_tools    = FileTools(self.root, memory=memory, ingestor=ingestor).get_tools()
         build_tools   = BuildTools(self.root).get_tools()
         git_tools     = GitTools(self.root).get_tools()
         search_tools  = SearchTools(ingestor).get_tools()
         ast_tools     = AstTools(self.root).get_tools()
-        all_tools     = file_tools + build_tools + git_tools + search_tools + ast_tools
+        memory_tools  = make_memory_tools(memory)
+        all_tools     = file_tools + build_tools + git_tools + search_tools + ast_tools + memory_tools
 
         # LLM
         with console.status(f"[cyan]Connecting to {self.provider}...[/cyan]", spinner="dots"):
             llm = create_llm(self.provider, self.config)
+
+        if not memory.project_summary and new_chunks > 0:
+            with console.status("[cyan]Generating project summary...[/cyan]", spinner="dots"):
+                from aicoder.summarizer import generate_project_summary
+                summary = generate_project_summary(llm, self.root)
+                if summary:
+                    memory.set_project_summary(summary)
+                    memory.save()
+                    console.print(f"[green]✓[/green] [dim]{summary}[/dim]\n")
 
         agent = build_agent(llm, all_tools)
         console.print(f"[green]✓[/green] [bold]{self.provider}[/bold] ready\n")
