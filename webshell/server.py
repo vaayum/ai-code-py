@@ -177,7 +177,8 @@ def list_files():
         for p in sorted(root.rglob("*")):
             if p.is_file():
                 rel = str(p.relative_to(root))
-                if any(part.startswith(".") or part in ("__pycache__", "node_modules", ".venv", "venv") for part in p.parts):
+                # Check only relative parts so we don't accidentally match parent hidden dirs (e.g. .gemini)
+                if any(part.startswith(".") or part in ("__pycache__", "node_modules", ".venv", "venv") for part in Path(rel).parts):
                     continue
                 if len(rel) < 200:
                     files.append(rel)
