@@ -1,6 +1,6 @@
-"""Build tools — compile, test, shell execution."""
 from __future__ import annotations
 
+import sys
 import subprocess
 import shutil
 from pathlib import Path
@@ -52,7 +52,7 @@ class BuildTools:
                 "npm": ["npm", "run", "build"],
                 "cargo": ["cargo", "build"],
                 "go": ["go", "build", "./..."],
-                "python": ["python", "-m", "py_compile"],
+                "python": [sys.executable, "-m", "py_compile"],
                 "make": ["make"],
             }.get(system, ["make"])
 
@@ -70,7 +70,7 @@ class BuildTools:
                 "npm": ["npm", "test", "--", "--ci"],
                 "cargo": ["cargo", "test"],
                 "go": ["go", "test", "./..."],
-                "python": ["python", "-m", "pytest", "-v", "--tb=short"],
+                "python": [sys.executable, "-m", "pytest", "-v", "--tb=short"],
                 "make": ["make", "test"],
             }.get(system, ["make", "test"])
 

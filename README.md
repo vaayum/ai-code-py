@@ -13,11 +13,7 @@
   - [Option 2 — Local (Ollama)](#option-2--local-ollama)
   - [Option 3 — Enterprise / On-Premise](#option-3--enterprise--on-premise)
 - [Commands](#commands)
-  - [fix](#fix--fix-a-bug-or-implement-a-feature)
-  - [refactor](#refactor--refactor-without-changing-behavior)
-  - [audit](#audit--security--quality-review)
-  - [run](#run--open-ended-task)
-  - [test-gen](#test-gen--generate-test-suites)
+  - [Smart Commands (Intent Detection)](#smart-commands-intent-detection)
   - [models](#models--list-recommended-models)
   - [enterprise-init](#enterprise-init--setup-wizard)
   - [mcp-init](#mcp-init--mcp-server-config)
@@ -46,7 +42,7 @@ pip install aicoder   # or: uv tool install aicoder
 export DEEPSEEK_API_KEY=sk-...
 
 # 3. Run
-aicoder fix "fix the null pointer in UserService" --model deepseek
+aicoder "fix the null pointer in UserService" --model deepseek
 ```
 
 ---
@@ -65,7 +61,7 @@ uv tool install aicoder
 # For local Ollama models — no API key needed
 brew install ollama
 ollama pull qwen2.5-coder:7b
-aicoder fix "add logging" --model ollama
+aicoder "add logging" --model ollama
 ```
 
 ---
@@ -88,9 +84,9 @@ export GOOGLE_API_KEY=...              # Gemini 2.0 (1M ctx)
 Then run any command with `--model <provider>`:
 
 ```bash
-aicoder fix "add input validation" --model anthropic
-aicoder fix "add input validation" --model deepseek
-aicoder fix "add input validation" --model gemini
+aicoder "add input validation" --model anthropic
+aicoder "add input validation" --model deepseek
+aicoder "add input validation" --model gemini
 ```
 
 Or set defaults in `.aicoder.yml`:
@@ -114,7 +110,7 @@ Zero API cost. Runs 100% on your machine.
 ollama pull qwen2.5-coder:7b   # 6GB VRAM — recommended for most developers
 
 # Run with it
-aicoder fix "refactor into smaller functions" --model ollama
+aicoder "refactor into smaller functions" --model ollama
 ```
 
 Configure a specific local model in `.aicoder.yml`:
@@ -218,22 +214,28 @@ All four auth strategies share the same runtime contract:
 
 ## Commands
 
-### `fix` — Fix a bug or implement a feature
+AICoder operates via a single, smart command interface. You just describe what you want in plain English, and the agent automatically detects your intent (`fix`, `refactor`, `audit`, or `test-gen`).
 
+### Smart Commands (Intent Detection)
+
+**1. Fix a bug or implement a feature** (Default intent)
 ```bash
-aicoder fix "Fix the ZeroDivisionError in calculator.py" --model deepseek
+aicoder "Fix the ZeroDivisionError in calculator.py" --model deepseek
 
 # With interactive diff approval (approve each file change before it's written)
-aicoder fix "Add input validation to all endpoints" --model anthropic --interactive
+aicoder "Add input validation to all endpoints" --model anthropic --interactive
 
 # With a design spec document
-aicoder fix "Implement auth module" --spec design/auth-spec.md --model deepseek
+aicoder "Implement auth module" --spec design/auth-spec.md --model deepseek
 
 # Dry-run (show what would change, write nothing)
-aicoder fix "Remove unused imports" --model deepseek --dry-run
+aicoder "Remove unused imports" --model deepseek --dry-run
 
 # Target a specific directory
-aicoder fix "Add retry logic" --dir ./services --model deepseek
+aicoder "Add retry logic" --dir ./services --model deepseek
+
+# Multi-agent pipeline: Planner → Coder → Reviewer + Tester → Synthesis
+aicoder "Add rate limiting to the API" --agents
 ```
 
 **Live demo** — Agent fixed a ZeroDivisionError using DeepSeek:
@@ -265,91 +267,31 @@ Changes Made:
 ✅ Bug fixed: completely removed crash on 1/0
 ```
 
-**Before:**
-```python
-x = 1
-y = 0
-result = x / y  # 💥 ZeroDivisionError
-```
-
-**After (written by the agent):**
-```python
-def safe_divide(numerator, denominator):
-    if not isinstance(numerator, (int, float)):
-        print(f"Error: Numerator is type {type(numerator).__name__}, expected int or float")
-        return None
-    try:
-        return numerator / denominator
-    except ZeroDivisionError:
-        print(f"Error: Cannot divide {numerator} by zero")
-        return None
-```
-
----
-
-### `refactor` — Refactor without changing behavior
-
+**2. Refactor without changing behavior** (Keywords: `refactor`, `reorganize`, `clean up`, etc.)
 ```bash
-aicoder refactor "Extract the payment logic into a PaymentService class" --model deepseek
-aicoder refactor "Apply SOLID principles to the user module" --model anthropic
-aicoder refactor "Convert callbacks to async/await" --model deepseek --interactive
+aicoder "Extract the payment logic into a PaymentService class" --model deepseek
+aicoder "Apply SOLID principles to the user module" --model anthropic
+aicoder "Convert callbacks to async/await" --model deepseek --interactive
 ```
 
----
-
-### `audit` — Security & quality review
-
+**3. Security & quality review** (Keywords: `audit`, `review`, `security`, `leak`, etc.)
 ```bash
 # Audit the whole codebase
-aicoder audit "Check for SQL injection, hardcoded secrets, and insecure deserialization"
+aicoder "Check for SQL injection, hardcoded secrets, and insecure deserialization"
 
 # Since a git branch (only changed files)
-aicoder audit --since main "Security review of all changes"
+aicoder "Security review of all changes" --since main
 
 # Audit a specific directory
-aicoder audit "Check for PII leaks in logging" --dir ./services/user
+aicoder "Check for PII leaks in logging" --dir ./services/user
 ```
 
-Example output:
-```
-Security Audit Results
-───────────────────────────────────────────────────────────────
-
-🔴 HIGH   api/routes.py:42    SQL injection via f-string query
-🔴 HIGH   config/settings.py  Hardcoded API key: STRIPE_KEY = "sk_live_..."
-🟡 MEDIUM utils/logger.py:18  Email addresses logged in plain text
-🟢 LOW    models/user.py      Unused import: hashlib
-```
-
----
-
-### `run` — Open-ended task
-
+**4. Generate test suites** (Keywords: `test`, `coverage`, `pytest`, etc.)
 ```bash
-# Single-agent (default)
-aicoder run "Add pagination to all list API endpoints"
-
-# Multi-agent pipeline: Planner → Coder → Reviewer + Tester → Synthesis
-aicoder run "Add rate limiting to the API" --agents
+# Generate tests for a specific file or directory
+aicoder "Generate tests for src/services/payment.py" --model deepseek
 ```
-
----
-
-### `test-gen` — Generate test suites
-
-```bash
-# Generate tests for a specific file
-aicoder test-gen --file src/services/payment.py --model deepseek
-
-# Generate for an entire directory
-aicoder test-gen --dir src/services --model anthropic
-```
-
-Generates:
-- Unit tests with mocking
-- Edge cases and error paths
-- Property-based tests where applicable
-- Pytest fixtures and conftest
+*(Note: tests are automatically generated, run, and fixed up to 3 times if they fail).*
 
 ---
 
@@ -410,20 +352,20 @@ Creates `.aicoder/mcp.json` with an example MCP server configuration. Then use `
 | `--model` | all | Provider: `anthropic`, `openai`, `deepseek`, `gemini`, `ollama`, `enterprise` |
 | `--dir` | all | Target directory (default: current directory) |
 | `--config` | all | Path to `.aicoder.yml` config file |
-| `--dry-run` | fix, refactor, run | Show diffs but write no files |
-| `--interactive` | fix, refactor, run | Approve each file change with colored diff before writing |
+| `--dry-run` | all | Show diffs but write no files |
+| `--interactive` | all | Approve each file change with colored diff before writing |
 | `--spec` | all | Path to a design doc/spec — prepended to the instruction |
-| `--agents` | run | Enable multi-agent pipeline (Planner→Coder→Reviewer→Tester) |
-| `--since` | audit | Git ref (branch/commit) — only audit changed files |
+| `--agents` | all | Enable multi-agent pipeline (Planner→Coder→Reviewer→Tester) |
+| `--since` | all | Git ref (branch/commit) — prioritize changed files for testing or review |
 | `--mcp` | all | Path to MCP config or use `.aicoder/mcp.json` |
-| `--file` | test-gen | Target a single file |
+| `--reindex` | all | Force a full rebuild of the semantic codebase vector index |
 
 ---
 
 ## Multi-Agent Mode
 
 ```bash
-aicoder run "Add comprehensive rate limiting to all API endpoints" --agents
+aicoder "Add comprehensive rate limiting to all API endpoints" --agents
 ```
 
 Launches a **4-agent pipeline**:
@@ -467,7 +409,7 @@ Python files use Python's `ast` module for exact line locations. All other langu
 ## Interactive Mode
 
 ```bash
-aicoder fix "Refactor auth module" --interactive
+aicoder "Refactor auth module" --interactive
 ```
 
 Before writing any file, the agent shows a **colored diff** and asks for approval:
@@ -493,7 +435,7 @@ Before writing any file, the agent shows a **colored diff** and asks for approva
 ## Dry-Run Mode
 
 ```bash
-aicoder fix "Remove all print debug statements" --dry-run
+aicoder "Remove all print debug statements" --dry-run
 ```
 
 Shows exactly what would change — no files written. Useful for CI pipelines or reviewing before committing.
@@ -514,7 +456,7 @@ cat > design/auth-spec.md << EOF
 EOF
 
 # Agent reads the spec and implements it
-aicoder fix "Implement the auth module" --spec design/auth-spec.md --model anthropic
+aicoder "Implement the auth module" --spec design/auth-spec.md --model anthropic
 ```
 
 ---
@@ -525,7 +467,7 @@ AICoder indexes your codebase with **ChromaDB + sentence-transformers** for sema
 
 ```bash
 # "payment" will find PaymentService, StripeClient, InvoiceProcessor etc.
-aicoder fix "Add retry logic to all payment operations" --model deepseek
+aicoder "Add retry logic to all payment operations" --model deepseek
 ```
 
 - **Lazy Loading**: On the first run, the codebase is indexed automatically. Subsequent runs start up instantly using the cached SQLite index. Use `--reindex` to force a rebuild.
@@ -539,11 +481,11 @@ AICoder maintains **cross-session memory** in `.aicoder/memory.json`:
 
 ```bash
 # First session: agent learns your conventions
-aicoder fix "Add logging" --model deepseek
+aicoder "Add logging" --model deepseek
 # → Memory: "Project uses structlog with JSON format, level = INFO"
 
 # Next session: agent automatically follows the same conventions
-aicoder fix "Add logging to payment module" --model deepseek
+aicoder "Add logging to payment module" --model deepseek
 # → Agent applies structlog JSON logging without being told
 ```
 
@@ -577,7 +519,7 @@ aicoder mcp-init
 }
 
 # Use MCP tools in any command
-aicoder run "Create a PR for the current changes" --mcp
+aicoder "Create a PR for the current changes" --mcp
 ```
 
 Supports both **stdio** (local process) and **HTTP** (remote server) transports.
@@ -591,7 +533,7 @@ Supports both **stdio** (local process) and **HTTP** (remote server) transports.
 │                          AICoder Architecture                        │
 │                                                                     │
 │  CLI (Typer)                                                        │
-│   ├─ fix / refactor / audit / run / test-gen                       │
+│   ├─ Smart Command (Intent Detection)                              │
 │   ├─ models / enterprise-init / mcp-init                           │
 │   └─ --dry-run / --interactive / --agents / --spec / --mcp         │
 │                          │                                           │
@@ -626,7 +568,7 @@ Supports both **stdio** (local process) and **HTTP** (remote server) transports.
 **DeepSeek fixing a ZeroDivisionError** (actual run — no edits):
 
 ```
-$ aicoder fix "fix the zero division error and add proper error handling" \
+$ aicoder "fix the zero division error and add proper error handling" \
     --dir ./demo --model deepseek
 
 ╭─────────────────────────────────────────────╮
@@ -681,7 +623,7 @@ Run `aicoder models` to see the full list. Recommended picks:
 
 | Feature | Status |
 |---------|--------|
-| fix / refactor / audit / run / test-gen | ✅ |
+| Smart Commands (fix / refactor / audit / test-gen) | ✅ |
 | Interactive diff approval | ✅ |
 | Dry-run mode | ✅ |
 | Design spec support | ✅ |

@@ -1,6 +1,7 @@
 """Extended tests for git tools, build tools, ingestor, memory, CLI, and security."""
 from __future__ import annotations
 
+import sys
 import json
 import subprocess
 import tempfile
@@ -393,7 +394,7 @@ class TestCLISmoke:
 
     def test_help_command(self):
         result = subprocess.run(
-            ["python", "-m", "aicoder.cli", "--help"],
+            [sys.executable, "-m", "aicoder.cli", "--help"],
             cwd="/Users/nitinmudgal/.gemini/antigravity/scratch/ai-code-py",
             capture_output=True, text=True,
             env={**__import__("os").environ,
@@ -405,7 +406,7 @@ class TestCLISmoke:
 
     def test_version_flag(self):
         result = subprocess.run(
-            ["python", "-m", "aicoder.cli", "--version"],
+            [sys.executable, "-m", "aicoder.cli", "--version"],
             cwd="/Users/nitinmudgal/.gemini/antigravity/scratch/ai-code-py",
             capture_output=True, text=True,
             env={**__import__("os").environ,
@@ -417,7 +418,7 @@ class TestCLISmoke:
     def test_smart_command_help(self):
         """New unified smart command -- all flags visible at top level."""
         result = subprocess.run(
-            ["python", "-m", "aicoder.cli", "--help"],
+            [sys.executable, "-m", "aicoder.cli", "--help"],
             cwd="/Users/nitinmudgal/.gemini/antigravity/scratch/ai-code-py",
             capture_output=True, text=True,
             env={**__import__("os").environ,
@@ -434,7 +435,7 @@ class TestCLISmoke:
     def test_models_subcommand(self):
         """aicoder models should print the model catalog."""
         result = subprocess.run(
-            ["python", "-m", "aicoder.cli", "models"],
+            [sys.executable, "-m", "aicoder.cli", "models"],
             cwd="/Users/nitinmudgal/.gemini/antigravity/scratch/ai-code-py",
             capture_output=True, text=True,
             env={**__import__("os").environ,

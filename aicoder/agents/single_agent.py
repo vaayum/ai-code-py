@@ -102,6 +102,7 @@ def run_single_agent(
     llm,
     tools: list,
     memory_context: str = "",
+    chat_history: list = None,
 ) -> str:
     """Run a single blocking agent call. Returns the final response string."""
     agent = build_agent(llm, tools)
@@ -109,7 +110,10 @@ def run_single_agent(
     if memory_context:
         prompt = f"{instruction}\n\n{memory_context}"
 
-    result = agent.invoke({"messages": [HumanMessage(content=prompt)]})
+    messages = list(chat_history) if chat_history else []
+    messages.append(HumanMessage(content=prompt))
+
+    result = agent.invoke({"messages": messages})
     messages = result.get("messages", [])
     for msg in reversed(messages):
         if hasattr(msg, "content") and isinstance(msg.content, str) and msg.content.strip():
@@ -122,6 +126,7 @@ def stream_agent_events(
     llm,
     tools: list,
     memory_context: str = "",
+    chat_history: list = None,
 ) -> Iterator[AgentEvent]:
     """
     Stream rich agent events in real time using LangGraph stream_mode='updates'.
@@ -141,8 +146,11 @@ def stream_agent_events(
 
     yield ThinkingEvent()
 
+    messages = list(chat_history) if chat_history else []
+    messages.append(HumanMessage(content=prompt))
+
     for update in agent.stream(
-        {"messages": [HumanMessage(content=prompt)]},
+        {"messages": messages},
         stream_mode="updates",
     ):
         for node_name, node_output in update.items():
@@ -187,8 +195,9 @@ def stream_single_agent(
     llm,
     tools: list,
     memory_context: str = "",
+    chat_history: list = None,
 ) -> Iterator[str]:
     """Backward-compat: stream only the final text tokens."""
-    for event in stream_agent_events(instruction, llm, tools, memory_context):
+    for event in stream_agent_events(instruction, llm, tools, memory_context, chat_history):
         if isinstance(event, TokenEvent) and event.is_final:
             yield event.text

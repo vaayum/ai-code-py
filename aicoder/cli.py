@@ -174,7 +174,7 @@ def default(
     if not instruction:
         from aicoder.tui.shell import InteractiveShell
         cfg = load_config(config)
-        InteractiveShell(directory.resolve(), model, cfg, reindex=reindex).run()
+        InteractiveShell(directory.resolve(), model, cfg, reindex=reindex, interactive=interactive).run()
         return
 
     # ── Auto-detect intent ────────────────────────────────────────────────────

@@ -22,6 +22,8 @@ from rich.markdown import Markdown
 from rich.panel import Panel
 from rich.text import Text
 
+from langchain_core.messages import AIMessage, HumanMessage
+
 # ── prompt_toolkit ────────────────────────────────────────────────────────────
 from prompt_toolkit import PromptSession
 from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
@@ -131,12 +133,16 @@ class InteractiveShell:
         model_provider: str,
         config: AiCoderConfig | None = None,
         reindex: bool = False,
+        interactive: bool = False,
     ) -> None:
         self.root     = project_root.resolve()
         self.provider = model_provider
         self.config   = config or load_config()
         self.reindex  = reindex
+        # CLI flag takes precedence, otherwise fallback to config file
+        self.interactive = interactive or self.config.agent.interactive
         self._written_files: list[tuple[str, str, str]] = []   # (path, old, new)
+        self.chat_history: list = []  # Maintain conversation context
 
     # ── Public entry point ────────────────────────────────────────────────────
 
@@ -149,6 +155,8 @@ class InteractiveShell:
             console.print(f"[dim]{memory.stats()}[/dim]")
 
         console.print(f"[dim]📁 {self.root}[/dim]")
+        if self.interactive:
+            console.print("[dim]🔍 Interactive mode enabled (diff approval)[/dim]")
 
         # Index codebase
         ingestor = CodebaseIngestor(self.root)
@@ -164,7 +172,7 @@ class InteractiveShell:
             console.print("[dim]✓ Base index loaded (lazy)[/dim]")
 
         # Build tools (including memory tools bound to this session's memory)
-        file_tools    = FileTools(self.root, memory=memory, ingestor=ingestor).get_tools()
+        file_tools    = FileTools(self.root, memory=memory, ingestor=ingestor, interactive=self.interactive).get_tools()
         build_tools   = BuildTools(self.root).get_tools()
         git_tools     = GitTools(self.root).get_tools()
         search_tools  = SearchTools(ingestor).get_tools()
@@ -243,6 +251,7 @@ class InteractiveShell:
                     llm=llm,
                     tools=all_tools,
                     memory_context=memory.to_prompt_context(),
+                    chat_history=self.chat_history,
                 )
                 final_text = renderer.render(events)
                 renderer.print_session_stats()
@@ -250,6 +259,8 @@ class InteractiveShell:
                 if final_text:
                     memory.add_action(user_input[:80])
                     memory.save()
+                    self.chat_history.append(HumanMessage(content=user_input))
+                    self.chat_history.append(AIMessage(content=final_text))
 
             except KeyboardInterrupt:
                 console.print("\n[yellow]⚡ Cancelled.[/yellow]")
@@ -298,6 +309,7 @@ class InteractiveShell:
             case "/clear":
                 console.clear()
                 console.print(_BANNER)
+                self.chat_history.clear()
 
             case "/quit" | "/exit" | "/q":
                 return False

@@ -45,6 +45,7 @@ class AgentConfig(BaseModel):
     max_retries: int = 3
     temperature: float = 0.1
     max_tokens: int = 4096
+    interactive: bool = False
 
 
 class EnterpriseConfig(BaseModel):
