@@ -30,12 +30,20 @@ from pydantic import BaseModel
 
 # ── Config ─────────────────────────────────────────────────────────────────────
 
-PROJECT_ROOT = Path(os.environ.get("AICODER_DIR", ".")).resolve()
-AICODER_BIN  = sys.executable   # use same venv Python: python -m aicoder.cli
+# Mutable server state — project root can be switched at runtime via API
+_state: dict = {
+    "project_root": Path(os.environ.get("AICODER_DIR", ".")).resolve(),
+    "recent_projects": [],   # list of recently used project paths
+}
+PROJECT_ROOT = _state["project_root"]   # kept for backward compat on boot
+AICODER_BIN  = sys.executable
 STATIC_DIR   = Path(__file__).parent / "static"
 
 # In-memory session registry
 _sessions: dict[str, dict] = {}   # session_id → {proc, output_lines, done, cancelled}
+
+def _current_root() -> Path:
+    return _state["project_root"]
 
 app = FastAPI(title="AICoder Web Shell", version="0.1.0", docs_url="/api/docs")
 
@@ -54,7 +62,11 @@ class RunRequest(BaseModel):
     agents: bool = False
     dry_run: bool = False
     interactive: bool = False
-    directory: str = str(PROJECT_ROOT)
+    directory: str = ""  # empty = use current project root
+
+
+class SwitchProjectRequest(BaseModel):
+    path: str
 
 
 # ── API routes ─────────────────────────────────────────────────────────────────
@@ -66,13 +78,70 @@ def health():
         version = __version__
     except Exception:
         version = "unknown"
-    return {"status": "ok", "version": version, "project": str(PROJECT_ROOT)}
+    return {"status": "ok", "version": version, "project": str(_current_root())}
+
+
+@app.get("/api/project")
+def get_project():
+    """Return current project root and recent projects list."""
+    root = _current_root()
+    return {
+        "path": str(root),
+        "name": root.name,
+        "recent": _state["recent_projects"],
+    }
+
+
+@app.post("/api/project/switch")
+def switch_project(req: SwitchProjectRequest):
+    """Switch the active project to the given path."""
+    new_root = Path(req.path).resolve()
+    if not new_root.exists():
+        raise HTTPException(status_code=400, detail=f"Path does not exist: {new_root}")
+    if not new_root.is_dir():
+        raise HTTPException(status_code=400, detail=f"Path is not a directory: {new_root}")
+    _state["project_root"] = new_root
+    # Track recent projects (keep last 8, dedup)
+    recent = _state["recent_projects"]
+    entry = str(new_root)
+    if entry in recent:
+        recent.remove(entry)
+    recent.insert(0, entry)
+    _state["recent_projects"] = recent[:8]
+    return {"status": "ok", "project": str(new_root), "name": new_root.name}
+
+
+@app.get("/api/browse")
+def browse_dir(path: str = ""):
+    """
+    List subdirectories + parent inside `path` (default: home dir).
+    Used by the frontend directory picker.
+    """
+    if path:
+        target = Path(path).resolve()
+    else:
+        target = Path.home()
+    if not target.exists() or not target.is_dir():
+        raise HTTPException(status_code=400, detail=f"Not a directory: {path}")
+    dirs = []
+    try:
+        for child in sorted(target.iterdir()):
+            if child.is_dir() and not child.name.startswith("."):
+                # Flag whether it looks like a code project
+                markers = {"package.json", "pyproject.toml", "setup.py", "Cargo.toml", "go.mod", ".git", "pom.xml"}
+                is_project = any((child / m).exists() for m in markers)
+                dirs.append({"name": child.name, "path": str(child), "is_project": is_project})
+    except PermissionError:
+        pass
+    parent = str(target.parent) if target != target.parent else None
+    return {"current": str(target), "parent": parent, "dirs": dirs}
 
 
 @app.get("/api/config")
 def get_config():
-    config_path = PROJECT_ROOT / ".aicoder.yml"
-    memory_path = PROJECT_ROOT / ".aicoder" / "memory.json"
+    root = _current_root()
+    config_path = root / ".aicoder.yml"
+    memory_path = root / ".aicoder" / "memory.json"
     try:
         import yaml
         cfg = yaml.safe_load(config_path.read_text()) if config_path.exists() else {}
@@ -93,27 +162,28 @@ def get_config():
 
 @app.get("/api/files")
 def list_files():
+    root = _current_root()
     files = []
     try:
-        for p in sorted(PROJECT_ROOT.rglob("*")):
+        for p in sorted(root.rglob("*")):
             if p.is_file():
-                rel = str(p.relative_to(PROJECT_ROOT))
-                # Skip hidden/build dirs
+                rel = str(p.relative_to(root))
                 if any(part.startswith(".") or part in ("__pycache__", "node_modules", ".venv", "venv") for part in p.parts):
                     continue
                 if len(rel) < 200:
                     files.append(rel)
     except Exception as e:
         files = [f"Error: {e}"]
-    return {"files": files[:200]}   # cap at 200
+    return {"files": files[:200], "root": str(root)}
 
 
 @app.post("/api/run")
 def start_run(req: RunRequest):
     session_id = str(uuid.uuid4())[:8]
+    work_dir = req.directory if req.directory else str(_current_root())
 
     args = [AICODER_BIN, "-m", "aicoder.cli", req.instruction,
-            "--model", req.model, "--dir", req.directory]
+            "--model", req.model, "--dir", work_dir]
     if req.agents:
         args.append("--agents")
     if req.dry_run:
@@ -129,7 +199,7 @@ def start_run(req: RunRequest):
             text=True,
             bufsize=1,
             env=env,
-            cwd=req.directory,
+            cwd=work_dir,
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -188,12 +258,14 @@ def cancel_run(session_id: str):
 
 @app.get("/api/history")
 def get_history():
-    memory_path = PROJECT_ROOT / ".aicoder" / "memory.json"
+    root = _current_root()
+    memory_path = root / ".aicoder" / "memory.json"
     try:
         memory = json.loads(memory_path.read_text()) if memory_path.exists() else {}
         return {"actions": memory.get("recent_actions", [])}
     except Exception:
         return {"actions": []}
+
 
 
 # ── Serve static frontend ───────────────────────────────────────────────────────

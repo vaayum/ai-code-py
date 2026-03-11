@@ -1,6 +1,12 @@
 {
-  "conventions": [],
+  "conventions": [
+    "Rate limiting tests in tests/test_rate_limiting.py cover all spec requirements: read/write limits, separate counters, reset method, custom limits, and error formatting. list_files is not rate limited."
+  ],
   "recentActions": [
+    {
+      "timestamp": "2026-03-11T19:41:12.580393",
+      "action": "test cases are required to cover the rate limiting functionality, can you implem"
+    },
     {
       "timestamp": "2026-03-11T18:45:14.070955",
       "action": "check if any test case is required to cover the functinallity"
