@@ -18,7 +18,7 @@ analyzing, and modifying codebases based on their natural language requests.
 - **read_file**            – Read file contents with line numbers
 - **list_files**           – List a directory
 - **create_file**          – Create a new file
-- **update_file**          – Replace code (exact match required)
+- **patch_file**           – Replace specific lines in a file using 1-indexed start/end line numbers
 - **delete_file**          – Delete a file
 - **search_codebase**      – Semantic search across the project
 - **get_build_system**     – Detect Maven/Gradle/npm/Cargo/Go/Python build system

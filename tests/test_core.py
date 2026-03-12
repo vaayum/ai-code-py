@@ -63,20 +63,21 @@ def test_file_tools_read_write():
         assert "1:" in content  # line numbers present
 
 
-def test_file_tools_update():
+def test_file_tools_patch():
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
         from aicoder.tools.file_tools import FileTools
         ft = FileTools(root)
         tools = {t.name: t for t in ft.get_tools()}
 
-        tools["create_file"].invoke({"path": "test.py", "content": "def foo():\n    pass\n"})
-        result = tools["update_file"].invoke({
+        tools["create_file"].invoke({"path": "test.py", "content": "def foo():\\n    pass\\n"})
+        result = tools["patch_file"].invoke({
             "path": "test.py",
-            "old_content": "    pass",
+            "start_line": 2,
+            "end_line": 2,
             "new_content": "    return 42",
         })
-        assert "Updated" in result
+        assert "Updated" in result or "patched" in result.lower()
         content = tools["read_file"].invoke({"path": "test.py"})
         assert "return 42" in content
 

@@ -39,7 +39,7 @@ _TOOL_ICONS: dict[str, tuple[str, str]] = {
     "read_file":          ("🔍", "cyan"),
     "list_files":         ("📂", "cyan"),
     "create_file":        ("✨", "green"),
-    "update_file":        ("✏️ ", "yellow"),
+    "patch_file":         ("✏️ ", "yellow"),
     "delete_file":        ("🗑️ ", "red"),
     "search_codebase":    ("🔎", "blue"),
     "get_build_system":   ("🔧", "magenta"),
@@ -95,7 +95,7 @@ def _tool_result_summary(tool_name: str, result: str) -> str | None:
     if tool_name == "compile_project":
         ok = not any(w in result.lower() for w in ("error", "fail"))
         return "[dim]✅ OK[/dim]" if ok else "[dim]❌ Error[/dim]"
-    if tool_name in ("create_file", "update_file", "delete_file"):
+    if tool_name in ("create_file", "patch_file", "delete_file"):
         return "[dim]✅ Done[/dim]"
     if tool_name == "commit_changes":
         for line in lines:
@@ -168,7 +168,7 @@ class LiveRenderer:
         """Print a compact session summary bar."""
         elapsed = time.time() - self._start
         reads   = sum(1 for n, _, _ in self._tool_calls if n in ("read_file", "list_files", "search_codebase"))
-        writes  = sum(1 for n, _, _ in self._tool_calls if n in ("create_file", "update_file", "delete_file"))
+        writes  = sum(1 for n, _, _ in self._tool_calls if n in ("create_file", "patch_file", "delete_file"))
         ran_tests = any(n == "run_tests" for n, _, _ in self._tool_calls)
 
         parts = []

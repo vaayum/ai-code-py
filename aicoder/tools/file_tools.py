@@ -75,16 +75,13 @@ def _ask_approve(
     _console.print()
     _console.rule(f"[bold yellow]⚡ Agent wants to {action}: {path}[/bold yellow]")
     _render_diff(path, old, new)
-    _console.print()
+    _console.print("\n[bold]Apply change?[/bold] \[[green]y[/green]]es  \[[red]n[/red]]o  \[[cyan]a[/cyan]]ll  \[[red]q[/red]]uit")
 
     while True:
-        choice = _console.input(
-            "[bold]Apply change?[/bold] "
-            "\\[[green]y[/green]]es  "
-            "\\[[red]n[/red]]o  "
-            "\\[[cyan]a[/cyan]]ll  "
-            "\\[[red]q[/red]]uit  > "
-        ).strip().lower()
+        try:
+            choice = input("> ").strip().lower()
+        except EOFError:
+            return "no"
 
         if choice in ("y", "yes"):
             return "yes"
@@ -237,8 +234,8 @@ class FileTools:
             return f"✅ Created: {path}"
 
         @tool
-        def update_file(path: str, old_content: str, new_content: str) -> str:
-            """Replace old_content with new_content in a file (exact match required)."""
+        def patch_file(path: str, start_line: int, end_line: int, new_content: str) -> str:
+            """Replace lines from start_line to end_line (1-indexed inclusive) with new_content."""
             # Check write rate limit
             error = self._check_rate_limit(self._write_timestamps, self.max_writes_per_minute, "writes")
             if error:
@@ -247,21 +244,33 @@ class FileTools:
             target = _resolve(root, path)
             if not target.exists():
                 return f"❌ File not found: {path}"
-            current = target.read_text()
-            if old_content not in current:
-                return (
-                    f"❌ Exact match not found in {path}.\n"
-                    "Read the file first, then use the exact text you see."
-                )
-            updated = current.replace(old_content, new_content, 1)
+            
+            lines = target.read_text(errors="replace").split("\\n")
+            
+            if start_line < 1 or start_line > len(lines):
+                return f"❌ Invalid start_line: {start_line}. File has {len(lines)} lines."
+            if end_line < start_line:
+                return f"❌ end_line ({end_line}) cannot be less than start_line ({start_line})."
+                
+            # If end_line exceeds file length, cap it (or we could error)
+            end_line = min(end_line, len(lines))
+
+            # Extract old content for the diff/review
+            old_lines = lines[start_line - 1 : end_line]
+            old_content_str = "\\n".join(old_lines)
+            
+            # Perform the replacement
+            new_lines_list = new_content.split("\\n")
+            updated_lines = lines[:start_line - 1] + new_lines_list + lines[end_line:]
+            updated = "\\n".join(updated_lines)
 
             if dry_run:
-                _console.print(f"\n[dim]📋 DRY RUN — update: {path}[/dim]")
-                _render_diff(path, current, updated)
-                return f"[DRY RUN] Would update {path}: replace {len(old_content)} chars"
+                _console.print(f"\\n[dim]📋 DRY RUN — patch: {path} (Lines {start_line}-{end_line})[/dim]")
+                _render_diff(path, target.read_text(errors="replace"), updated)
+                return f"[DRY RUN] Would patch {path}: replaced lines {start_line}-{end_line}"
 
             if interactive:
-                decision = _ask_approve("UPDATE", path, current, updated, state)
+                decision = _ask_approve(f"PATCH (Lines {start_line}-{end_line})", path, target.read_text(errors="replace"), updated, state)
                 if decision == "no":
                     return f"⏭️  Skipped (user rejected): {path}"
                 if decision == "quit":
@@ -312,7 +321,7 @@ class FileTools:
                     
             return f"✅ Deleted: {path}"
 
-        return [read_file, list_files, create_file, update_file, delete_file]
+        return [read_file, list_files, create_file, patch_file, delete_file]
 
 
 def _resolve(root: Path, path: str) -> Path:

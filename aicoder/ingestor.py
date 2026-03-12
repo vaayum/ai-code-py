@@ -56,12 +56,16 @@ class CodebaseIngestor:
             self._fingerprints = json.loads(self._fp_file.read_text())
 
         client = chromadb.PersistentClient(path=str(self._cache_dir))
-        ef = embedding_functions.SentenceTransformerEmbeddingFunction(
-            model_name="all-MiniLM-L6-v2"
-        )
-        self._collection = client.get_or_create_collection(
-            name="codebase", embedding_function=ef
-        )
+        
+        import contextlib, os
+        with open(os.devnull, "w") as f, contextlib.redirect_stdout(f), contextlib.redirect_stderr(f):
+            ef = embedding_functions.SentenceTransformerEmbeddingFunction(
+                model_name="all-MiniLM-L6-v2"
+            )
+            # Fetch the collection while redirecting to suppress any lazy-load prints
+            self._collection = client.get_or_create_collection(
+                name="codebase", embedding_function=ef
+            )
         self._total_chunks = self._collection.count()
 
     def ingest(self, quiet: bool = False) -> int:

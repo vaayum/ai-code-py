@@ -170,9 +170,10 @@ class TestRateLimiting:
             tools["create_file"].invoke({"path": "test.txt", "content": "initial"})
             
             # Update the file (2 writes)
-            tools["update_file"].invoke({
+            tools["patch_file"].invoke({
                 "path": "test.txt",
-                "old_content": "initial",
+                "start_line": 1,
+                "end_line": 1,
                 "new_content": "updated"
             })
             

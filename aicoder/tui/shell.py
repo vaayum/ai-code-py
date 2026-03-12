@@ -106,7 +106,7 @@ _TOOL_ICONS: dict[str, tuple[str, str]] = {
     "read_file":           ("🔍", "cyan"),
     "list_files":          ("📂", "cyan"),
     "create_file":         ("✨", "green"),
-    "update_file":         ("✏️ ", "yellow"),
+    "patch_file":          ("✏️ ", "yellow"),
     "delete_file":         ("🗑️ ", "red"),
     "search_codebase":     ("🔎", "blue"),
     "compile_project":     ("🏗️ ", "magenta"),

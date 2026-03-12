@@ -91,16 +91,17 @@ class TestFileToolsExtended:
             result = tools["create_file"].invoke({"path": "dup.py", "content": "y"})
             assert "already exists" in result.lower() or "❌" in result
 
-    def test_update_no_match(self):
+    def test_patch_invalid_range(self):
         with tempfile.TemporaryDirectory() as tmp:
             tools = self._tools(Path(tmp))
-            tools["create_file"].invoke({"path": "a.py", "content": "hello"})
-            result = tools["update_file"].invoke({
+            tools["create_file"].invoke({"path": "a.py", "content": "hello\\nworld"})
+            result = tools["patch_file"].invoke({
                 "path": "a.py",
-                "old_content": "DOES_NOT_EXIST",
+                "start_line": 10,
+                "end_line": 15,
                 "new_content": "replaced",
             })
-            assert "not found" in result.lower() or "❌" in result
+            assert "invalid start_line" in result.lower() or "❌" in result
 
     def test_delete_file(self):
         with tempfile.TemporaryDirectory() as tmp:
