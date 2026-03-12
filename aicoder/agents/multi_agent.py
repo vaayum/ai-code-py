@@ -9,6 +9,9 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from langgraph.graph import END, StateGraph
 from langgraph.graph.message import add_messages
 from langgraph.prebuilt import create_react_agent
+from rich.console import Console
+
+console = Console()
 
 
 # ── State ────────────────────────────────────────────────────────────────────
@@ -121,16 +124,33 @@ def build_multi_agent_graph(llm, all_tools: list, read_only_tools: list, build_t
     def _invoke_if(agent, instruction: str | None, state: AgentState, role: str) -> dict:
         if not instruction:
             return {}
-        print(f"  → {role.upper()} agent starting...")
-        result = agent.invoke({"messages": [HumanMessage(content=instruction)]})
-        msgs = result.get("messages", [])
-        output = ""
-        for m in reversed(msgs):
-            if hasattr(m, "content") and isinstance(m.content, str) and m.content.strip():
-                output = m.content
-                break
-        print(f"  ✓ {role.upper()} done.")
-        return {f"{role}_result": output}
+            
+        console.print(f"\\n[bold blue]▶️  {role.upper()} agent starting...[/bold blue]")
+        
+        messages = [HumanMessage(content=instruction)]
+        final_output = ""
+        
+        from langchain_core.messages import AIMessage
+        
+        for update in agent.stream({"messages": messages}, stream_mode="updates"):
+            for node_name, node_output in update.items():
+                node_msgs = node_output.get("messages", [])
+                for msg in node_msgs:
+                    if hasattr(msg, "tool_calls") and msg.tool_calls:
+                        for tc in msg.tool_calls:
+                            name = tc.get("name", "tool")
+                            args = dict(tc.get("args", {}))
+                            arg_str = ", ".join(f"{k}={v!r}" for k, v in args.items())
+                            if len(arg_str) > 60:
+                                arg_str = arg_str[:57] + "..."
+                            # Print in format that index.html matches ('Tool: ')
+                            console.print(f"  → Tool: [bold cyan]{name}[/bold cyan]({arg_str})")
+                    
+                    if hasattr(msg, "content") and isinstance(msg.content, str) and msg.content.strip() and not getattr(msg, "tool_calls", None):
+                        final_output = msg.content
+        
+        console.print(f"  [bold green]✓ {role.upper()} done.[/bold green]")
+        return {f"{role}_result": final_output}
 
     def coder_node(state: AgentState) -> dict:
         return _invoke_if(coder_agent,    state.get("_plan", {}).get("coder"),    state, "coder")
