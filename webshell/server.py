@@ -69,6 +69,7 @@ class RunRequest(BaseModel):
     instruction: str
     model: str = "deepseek"
     agents: bool = False
+    auto_route: bool = True
     dry_run: bool = False
     interactive: bool = False
     directory: str = ""  # empty = use current project root
@@ -174,11 +175,25 @@ def list_files():
     root = _current_root()
     files = []
     try:
+        ignore_dirs = {
+            "__pycache__", "node_modules", ".venv", "venv", "env",
+            "target", "build", "dist", "out", "bin", "obj", ".idea", 
+            ".vscode", "coverage", ".tox", ".pytest_cache", ".mypy_cache"
+        }
+        ignore_exts = {
+            ".jar", ".class", ".pyc", ".pyo", ".pyd", ".so", ".dll", ".dylib",
+            ".exe", ".o", ".a", ".lib", ".wasm", ".zip", ".tar", ".gz",
+            ".pdf", ".png", ".jpg", ".jpeg", ".gif", ".ico", ".svg", ".ttf", 
+            ".woff", ".woff2", ".eot", ".mp4", ".mp3", ".wav"
+        }
+        
         for p in sorted(root.rglob("*")):
             if p.is_file():
                 rel = str(p.relative_to(root))
                 # Check only relative parts so we don't accidentally match parent hidden dirs (e.g. .gemini)
-                if any(part.startswith(".") or part in ("__pycache__", "node_modules", ".venv", "venv") for part in Path(rel).parts):
+                if any(part.startswith(".") and part != "." or part in ignore_dirs for part in Path(rel).parts):
+                    continue
+                if p.suffix.lower() in ignore_exts:
                     continue
                 if len(rel) < 200:
                     files.append(rel)
@@ -196,8 +211,12 @@ def start_run(req: RunRequest):
             "--model", req.model, "--dir", work_dir]
     if req.agents:
         args.append("--agents")
+    elif not req.auto_route:
+        args.append("--no-auto-route")
     if req.dry_run:
         args.append("--dry-run")
+    if req.interactive:
+        args.append("--interactive")
 
     env = {**os.environ, "FORCE_COLOR": "0", "NO_COLOR": "1", "TERM": "dumb"}
 
@@ -206,6 +225,7 @@ def start_run(req: RunRequest):
             args,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
+            stdin=subprocess.PIPE,
             text=True,
             bufsize=1,
             env=env,
@@ -264,6 +284,25 @@ def cancel_run(session_id: str):
     except Exception:
         pass
     return {"status": "cancel_requested"}
+
+
+class InputRequest(BaseModel):
+    text: str
+
+@app.post("/api/input/{session_id}")
+def send_input(session_id: str, req: InputRequest):
+    session = _sessions.get(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    proc = session["proc"]
+    if proc.stdin and proc.poll() is None:
+        try:
+            proc.stdin.write(req.text + "\n")
+            proc.stdin.flush()
+        except Exception:
+            pass
+    return {"status": "ok"}
+
 
 
 @app.get("/api/history")

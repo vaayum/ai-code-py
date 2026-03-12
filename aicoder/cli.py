@@ -143,7 +143,8 @@ def default(
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
     interactive: bool = typer.Option(False, "--interactive", "-i", help="Review each change before applying"),
     reindex: bool = typer.Option(False, "--reindex", help="Force a full rebuild of the codebase vector index"),
-    agents: bool = typer.Option(False, "--agents", help="Use multi-agent pipeline (Planner→Coder→Reviewer→Tester)"),
+    auto_route: bool = typer.Option(True, "--auto-route/--no-auto-route", help="Dynamically choose single vs multi-agent based on task complexity"),
+    agents: bool = typer.Option(False, "--agents", help="Force multi-agent pipeline (Planner→Coder→Reviewer→Tester)"),
     since: Optional[str] = typer.Option(None, "--since", help="Git ref — only consider changes since this branch/commit"),
     spec: Optional[Path] = typer.Option(None, "--spec", "-s", help="Design doc / spec file to follow"),
     mcp: Optional[Path] = typer.Option(None, "--mcp", help="Path to mcp.json"),
@@ -177,7 +178,7 @@ def default(
         InteractiveShell(directory.resolve(), model, cfg, reindex=reindex, interactive=interactive).run()
         return
 
-    # ── Auto-detect intent ────────────────────────────────────────────────────
+    # ── Auto-route intent ────────────────────────────────────────────────────
     mode = _classify(instruction)
 
     # Augment instruction based on detected mode
@@ -193,7 +194,24 @@ def default(
             "5) Fix failures (max 3 retries)."
         )
 
-    if agents:
+    use_agents = agents
+    if auto_route and not agents:
+        cfg = load_config(config)
+        llm = create_llm(model, cfg)
+        from aicoder.agents.router_agent import route_instruction
+        with console.status("[cyan]Analyzing task complexity...[/cyan]", spinner="dots"):
+            route = route_instruction(llm, instruction)
+            
+        console.print(f"[bold magenta]⚡ Smart Router:[/bold magenta] [yellow]{route['mode']}[/yellow] — [italic dim]{route['reasoning']}[/italic dim]")
+        use_agents = route["mode"] == "MULTI_AGENT"
+
+    if use_agents:
+        from aicoder.cli import _run_multi_agent # Need to import locally if not already available in this scope, wait it's just below
+        # Wait, the original code called _run_multi_agent directly, meaning it's in cli.py or imported.
+        # Looking at original code:
+        pass # removed this, just keeping the call
+        
+    if use_agents:
         _run_multi_agent(instruction, mode, model, directory, config, dry_run, mcp, interactive, spec, reindex)
     else:
         _run_batch(instruction, mode, model, directory, config, dry_run, mcp, interactive, spec, reindex)
