@@ -307,8 +307,8 @@ def _run_multi_agent(
     spec_ctx = _load_spec(spec)
     full_instruction = instruction + spec_ctx
 
-    console.print("[bold cyan]🚀 Launching: Planner → Coder + Reviewer + Tester → Synthesis[/bold cyan]\n")
-    result = run_multi_agent(full_instruction, llm, all_tools, ro_tools, build_tools_list)
+    console.print("[bold cyan]🚀 Launching: Planner → Coder + Reviewer + Tester → Synthesis[/bold cyan]\\n")
+    result = run_multi_agent(full_instruction, llm, all_tools, ro_tools, build_tools_list, interactive)
 
     console.print()
     console.rule("[dim]Final Summary[/dim]", style="dim")

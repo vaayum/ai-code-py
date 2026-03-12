@@ -453,6 +453,18 @@
       const instruction = document.getElementById('instruction').value.trim();
       if (!instruction) return;
 
+      if (currentSessionId) {
+        addMsg('user', `> ${instruction}`);
+        document.getElementById('instruction').value = '';
+        autoResize(document.getElementById('instruction'));
+        await fetch(`${API}/api/input/${currentSessionId}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text: instruction }),
+        });
+        return;
+      }
+
       hideSplash();
       addMsg('user', instruction);
       document.getElementById('instruction').value = '';
@@ -596,7 +608,18 @@
     }
 
     function setBusy(busy) {
-      document.getElementById('send-btn').disabled = busy;
+      const btn = document.getElementById('send-btn');
+      const input = document.getElementById('instruction');
+      // Do not disable send button so user can reply to prompts!
+      
+      if (busy) {
+          btn.innerHTML = '<span class="material-symbols-outlined font-bold">keyboard_return</span>';
+          input.placeholder = "Reply to AICoder... (if prompted)";
+      } else {
+          btn.innerHTML = '<span class="material-symbols-outlined font-bold">arrow_upward</span>';
+          input.placeholder = "Ask AICoder to refactor, debug, or explain...";
+      }
+
       document.getElementById('cancel-btn').disabled = !busy;
       setStatus(busy ? 'busy' : 'ready', busy ? 'Running...' : 'Ready');
     }

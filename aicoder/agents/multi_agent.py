@@ -68,7 +68,7 @@ Group by agent, highlight key outcomes, note any failures or follow-ups.
 
 # ── Graph builder ─────────────────────────────────────────────────────────────
 
-def build_multi_agent_graph(llm, all_tools: list, read_only_tools: list, build_tool_list: list):
+def build_multi_agent_graph(llm, all_tools: list, read_only_tools: list, build_tool_list: list, interactive: bool = False):
     """Build a LangGraph StateGraph: plan → coder → reviewer → tester → synthesize."""
 
     coder_agent    = create_react_agent(llm, all_tools,       prompt=SystemMessage(CODER_PROMPT))
@@ -78,19 +78,44 @@ def build_multi_agent_graph(llm, all_tools: list, read_only_tools: list, build_t
     # ── Nodes ──────────────────────────────────────────────────────────────
 
     def plan_node(state: AgentState) -> dict:
-        response = llm.invoke([
+        messages = [
             SystemMessage(content=PLANNER_PROMPT),
             HumanMessage(content=state["task"]),
-        ])
-        raw = response.content.strip()
-        raw = re.sub(r"^```(?:json)?\s*", "", raw)
-        raw = re.sub(r"\s*```$", "", raw)
-        try:
-            plan = json.loads(raw)
-        except Exception:
-            plan = {"coder": state["task"]}
+        ]
+        
+        while True:
+            response = llm.invoke(messages)
+            raw = response.content.strip()
+            raw = re.sub(r"^```(?:json)?\s*", "", raw)
+            raw = re.sub(r"\s*```$", "", raw)
+            try:
+                plan = json.loads(raw)
+            except Exception:
+                plan = {"coder": state["task"]}
 
-        print(f"\n🗂️  Work plan: {[k for k, v in plan.items() if v]}")
+            console.print(f"\\n[bold cyan]🗂️  Work plan:[/bold cyan] {[k for k, v in plan.items() if v]}")
+            
+            if not interactive:
+                break
+                
+            console.print("\\n[bold yellow]✋ Interactive Plan Review[/bold yellow]")
+            console.print("Type [bold green]'y'[/bold green] to approve, [bold red]'n'[/bold red] to abort, or [bold cyan]type feedback[/bold cyan] to refine the plan.")
+            console.print("Prompt > ")
+            
+            import sys
+            sys.stdout.flush()
+            resp = sys.stdin.readline().strip()
+            
+            if resp.lower() in ('y', 'yes', ''):
+                break
+            elif resp.lower() in ('n', 'no', 'cancel', 'exit', 'quit'):
+                console.print("[bold red]Plan rejected. Aborting.[/bold red]")
+                raise KeyboardInterrupt("User aborted during interactive planning.")
+            else:
+                console.print(f"[dim]Refining plan based on feedback: {resp}[/dim]")
+                messages.append(AIMessage(content=response.content))
+                messages.append(HumanMessage(content=f"Feedback: {resp}\\nUpdate the JSON plan accordingly."))
+
         return {"messages": [HumanMessage(content=f"Plan: {plan}")], "_plan": plan}
 
     def _invoke_if(agent, instruction: str | None, state: AgentState, role: str) -> dict:
@@ -151,8 +176,8 @@ def build_multi_agent_graph(llm, all_tools: list, read_only_tools: list, build_t
 
 
 def run_multi_agent(task: str, llm, all_tools: list,
-                    read_only_tools: list, build_tools: list) -> str:
-    app = build_multi_agent_graph(llm, all_tools, read_only_tools, build_tools)
+                    read_only_tools: list, build_tools: list, interactive: bool = False) -> str:
+    app = build_multi_agent_graph(llm, all_tools, read_only_tools, build_tools, interactive)
     final = app.invoke({
         "task": task,
         "messages": [],
